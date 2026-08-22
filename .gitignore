@@ -1,0 +1,15 @@
+node_modules
+dist
+*.tsbuildinfo
+.venv
+.cache
+
+.env
+.env.*
+!.env.example
+
+public/videos/*
+!public/videos/.gitkeep
+
+public/gallery/*
+!public/gallery/.gitkeep

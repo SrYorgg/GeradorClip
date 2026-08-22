@@ -1,0 +1,240 @@
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import tempfile
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+
+def module_available(name):
+    try:
+        __import__(name)
+        return True
+    except Exception:
+        return False
+
+
+def find_executable(name, env_var):
+    configured_path = os.environ.get(env_var)
+    if configured_path and Path(configured_path).exists():
+        return configured_path
+
+    path_result = shutil.which(name)
+    if path_result:
+        return path_result
+
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if not local_app_data:
+        return None
+
+    local_app_data_path = Path(local_app_data)
+    candidates = [
+        local_app_data_path / "Programs" / "Ollama" / f"{name}.exe",
+        local_app_data_path / "Microsoft" / "WinGet" / "Links" / f"{name}.exe",
+    ]
+
+    winget_packages = local_app_data_path / "Microsoft" / "WinGet" / "Packages"
+    if winget_packages.exists():
+        candidates.extend(winget_packages.glob(f"**/{name}.exe"))
+
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+
+    return None
+
+
+def run_ffmpeg_audio_extract(video_path, audio_path):
+    ffmpeg_bin = find_executable("ffmpeg", "FFMPEG_BIN")
+    if not ffmpeg_bin:
+        return {"available": False, "message": "ffmpeg nao encontrado. Configure FFMPEG_BIN."}
+
+    command = [
+        ffmpeg_bin,
+        "-y",
+        "-i",
+        str(video_path),
+        "-vn",
+        "-acodec",
+        "pcm_s16le",
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
+        str(audio_path),
+    ]
+    completed = subprocess.run(command, capture_output=True, text=True)
+
+    if completed.returncode != 0:
+        return {"available": True, "ok": False, "message": completed.stderr[-600:]}
+
+    return {"available": True, "ok": True, "audioPath": str(audio_path)}
+
+
+def run_whisperx(audio_path):
+    if not module_available("whisperx"):
+        return {"available": False, "message": "whisperx nao instalado."}
+
+    try:
+        import whisperx
+
+        device = os.environ.get("WHISPERX_DEVICE", "cpu")
+        model_name = os.environ.get("WHISPERX_MODEL", "small")
+        model = whisperx.load_model(model_name, device, compute_type=os.environ.get("WHISPERX_COMPUTE_TYPE", "int8"))
+        result = model.transcribe(str(audio_path))
+        segments = result.get("segments", [])
+        text = " ".join(segment.get("text", "").strip() for segment in segments).strip()
+
+        return {
+            "available": True,
+            "ok": True,
+            "model": model_name,
+            "language": result.get("language"),
+            "text": text,
+            "segments": segments,
+        }
+    except Exception as error:
+        return {"available": True, "ok": False, "message": str(error)}
+
+
+def run_pyannote(audio_path):
+    if not module_available("pyannote.audio"):
+        return {"available": False, "message": "pyannote.audio nao instalado."}
+
+    token = os.environ.get("PYANNOTE_AUTH_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+    if not token:
+        return {"available": True, "ok": False, "message": "Configure PYANNOTE_AUTH_TOKEN ou HUGGINGFACE_TOKEN."}
+
+    try:
+        from pyannote.audio import Pipeline
+
+        pipeline_name = os.environ.get("PYANNOTE_PIPELINE", "pyannote/speaker-diarization-3.1")
+        pipeline = Pipeline.from_pretrained(pipeline_name, use_auth_token=token)
+        diarization = pipeline(str(audio_path))
+        turns = []
+
+        for turn, _, speaker in diarization.itertracks(yield_label=True):
+            turns.append({"speaker": speaker, "start": turn.start, "end": turn.end})
+
+        return {"available": True, "ok": True, "pipeline": pipeline_name, "turns": turns}
+    except Exception as error:
+        return {"available": True, "ok": False, "message": str(error)}
+
+
+def run_mediapipe(video_path):
+    if not module_available("mediapipe"):
+        return {"available": False, "message": "mediapipe nao instalado."}
+
+    if not module_available("cv2"):
+        return {"available": True, "ok": False, "message": "opencv-python nao instalado."}
+
+    try:
+        import cv2
+        import mediapipe as mp
+
+        cap = cv2.VideoCapture(str(video_path))
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30
+        frame_interval = max(int(fps), 1)
+        frame_index = 0
+        sampled_frames = 0
+        frames_with_faces = 0
+        max_faces = 0
+
+        detector = mp.solutions.face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
+
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                break
+
+            if frame_index % frame_interval == 0:
+                sampled_frames += 1
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                detections = detector.process(rgb).detections or []
+                face_count = len(detections)
+                max_faces = max(max_faces, face_count)
+                if face_count:
+                    frames_with_faces += 1
+
+            frame_index += 1
+
+        cap.release()
+        detector.close()
+
+        return {
+            "available": True,
+            "ok": True,
+            "sampledFrames": sampled_frames,
+            "framesWithFaces": frames_with_faces,
+            "maxFaces": max_faces,
+        }
+    except Exception as error:
+        return {"available": True, "ok": False, "message": str(error)}
+
+
+def run_ollama(transcript_text):
+    base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+    model = os.environ.get("OLLAMA_MODEL", "llama3.2:1b")
+
+    prompt = (
+        "Analise a transcricao abaixo e gere um resumo curto, topicos de corte e ideias de titulo em portugues.\n\n"
+        f"Transcricao:\n{transcript_text[:8000] if transcript_text else 'Sem transcricao disponivel.'}"
+    )
+
+    payload = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode("utf-8")
+    request = urllib.request.Request(
+        f"{base_url}/api/generate",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            return {"available": True, "ok": True, "model": model, "response": data.get("response", "")}
+    except (urllib.error.URLError, TimeoutError) as error:
+        return {"available": False, "model": model, "message": str(error)}
+    except Exception as error:
+        return {"available": True, "ok": False, "model": model, "message": str(error)}
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--video", required=True)
+    parser.add_argument("--output", required=True)
+    args = parser.parse_args()
+
+    video_path = Path(args.video).resolve()
+    output_path = Path(args.output).resolve()
+
+    result = {
+        "videoPath": str(video_path),
+        "tools": {},
+    }
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+      audio_path = Path(temp_dir) / "audio.wav"
+      result["tools"]["ffmpeg"] = run_ffmpeg_audio_extract(video_path, audio_path)
+
+      if result["tools"]["ffmpeg"].get("ok"):
+          result["tools"]["whisperx"] = run_whisperx(audio_path)
+          result["tools"]["pyannote"] = run_pyannote(audio_path)
+      else:
+          result["tools"]["whisperx"] = {"available": False, "message": "Audio nao extraido."}
+          result["tools"]["pyannote"] = {"available": False, "message": "Audio nao extraido."}
+
+      result["tools"]["mediapipe"] = run_mediapipe(video_path)
+
+      transcript = result["tools"].get("whisperx", {}).get("text", "")
+      result["tools"]["ollama"] = run_ollama(transcript)
+
+    output_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(json.dumps(result, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()

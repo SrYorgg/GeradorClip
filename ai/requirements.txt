@@ -1,0 +1,4 @@
+whisperx
+mediapipe
+pyannote.audio
+opencv-python
