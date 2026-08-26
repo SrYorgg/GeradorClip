@@ -153,7 +153,7 @@ export function CompositionEditorPage() {
   const sourceAsset = project?.assets.find((asset) => asset.id === selectedItem?.assetId) || project?.assets[0];
   const selectedRegion = composition ? getCompositionRegion(composition, selectedItem) : null;
   const selectedTransform = getTransform(selectedItem);
-  const visibleTransform = dragPreview?.itemId === selectedItem?.id
+  const visibleTransform = dragPreview && dragPreview.itemId === selectedItem?.id
     ? { ...selectedTransform, x: dragPreview.x, y: dragPreview.y }
     : selectedTransform;
   const activePreset = composition ? getActivePreset(composition) : 'vertical';
