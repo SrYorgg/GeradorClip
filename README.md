@@ -261,29 +261,3 @@ src/                Frontend React/TypeScript
 public/videos/      Vídeos enviados localmente
 public/gallery/     Pacotes exportados localmente
 ~~~
-
-## Solução de problemas
-
-### O terminal não solicita o token
-
-O .env já existe. Edite o arquivo local ou execute o setup novamente depois de removê-lo.
-
-### A porta 3333 já está em uso
-
-Encerre o processo que está usando a porta ou altere API_PORT no .env e o proxy correspondente em vite.config.ts.
-
-### A IA aparece como indisponível
-
-Confirme o ambiente em /api/ai/status. Verifique Python, as dependências de ai/requirements.txt, ffmpeg, Ollama e o token do Hugging Face.
-
-### O editor funciona, mas não há MP4 na galeria
-
-A aprovação do Ciclo 1 salva a composição editável. A geração final usando o novo layout será feita na etapa de exportação.
-
-## Segurança antes de publicar
-
-- Nunca versione .env ou tokens reais.
-- Não versione vídeos pessoais de public/videos.
-- Não versione clipes exportados de public/gallery.
-- Não versione .venv, .cache, node_modules ou dist.
-- Se um token já tiver sido publicado, revogue-o no serviço de origem e gere outro.
