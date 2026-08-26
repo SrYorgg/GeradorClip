@@ -1,3 +1,5 @@
+import type { Composition, Project, ProjectSummary } from '../features/editor/domain/editor.types';
+
 export type UploadedVideo = {
   id: string;
   originalName: string;
@@ -30,6 +32,12 @@ export type GeneratedClip = {
   fileName?: string;
   url?: string;
   subtitleMode?: string;
+  subtitleFont?: string;
+  subtitlePosition?: string;
+  subtitlePath?: string | null;
+  subtitleError?: string | null;
+  subtitleSource?: string | null;
+  subtitleCorrections?: number;
   audioMode?: string;
 };
 
@@ -42,6 +50,9 @@ export type GalleryPackage = {
   sourceName: string;
   createdAt: string;
   subtitleMode: string;
+  subtitleFont: string;
+  subtitlePosition: string;
+  subtitleCorrections?: number;
   audioMode: string;
   clips: GeneratedClip[];
 };
@@ -113,9 +124,20 @@ export async function listGeneratedClips() {
   return data.clips;
 }
 
-export async function generateVideoClips(id: string) {
+export async function generateVideoClips(
+  id: string,
+  options: {
+    mode: 'duration' | 'count';
+    targetDurationSeconds: number;
+    targetClipCount: number;
+  },
+) {
   const response = await fetch(`/api/videos/${id}/clips`, {
     method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(options),
   });
 
   assertApiResponse(response);
@@ -135,8 +157,11 @@ export async function listGalleryPackages() {
 export async function exportClipsToGallery(payload: {
   videoId: string;
   clipIds: string[];
-  captionClipIds: string[];
   subtitleMode: string;
+  manualSubtitleText: string;
+  subtitleCorrections: string;
+  subtitleFont: string;
+  subtitlePosition: string;
   audioMode: string;
 }) {
   const response = await fetch('/api/gallery/export', {
@@ -180,4 +205,83 @@ export async function getAiStatus() {
     status: Record<string, boolean>;
   };
   return data.status;
+}
+
+export async function listProjects() {
+  const response = await fetch('/api/projects');
+  assertApiResponse(response);
+
+  const data = (await response.json()) as { projects: ProjectSummary[] };
+  return data.projects;
+}
+
+export async function createProject(payload: {
+  videoId: string;
+  clipIds?: string[];
+  title?: string;
+}) {
+  const response = await fetch('/api/projects', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  assertApiResponse(response);
+
+  const data = (await response.json()) as { project: Project };
+  return data.project;
+}
+
+export async function getProject(id: string) {
+  const response = await fetch(`/api/projects/${id}`);
+  assertApiResponse(response);
+
+  const data = (await response.json()) as { project: Project };
+  return data.project;
+}
+
+export async function saveComposition(composition: Composition) {
+  const response = await fetch(`/api/compositions/${composition.id}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      composition,
+      expectedRevision: composition.revision,
+    }),
+  });
+
+  assertApiResponse(response);
+
+  const data = (await response.json()) as { composition: Composition; project: Project };
+  return data;
+}
+
+export async function approveComposition(composition: Composition) {
+  const response = await fetch(`/api/compositions/${composition.id}/approve`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ expectedRevision: composition.revision }),
+  });
+
+  assertApiResponse(response);
+
+  const data = (await response.json()) as { composition: Composition; project: Project };
+  return data;
+}
+
+export async function duplicateComposition(id: string) {
+  const response = await fetch(`/api/compositions/${id}/duplicate`, {
+    method: 'POST',
+  });
+
+  assertApiResponse(response);
+
+  const data = (await response.json()) as { composition: Composition; project: Project };
+  return data;
 }

@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import {
+  BookOpen,
   FileVideo2,
+  FolderOpen,
   Images,
-  LayoutDashboard,
   LogOut,
   Scissors,
+  Settings,
   Star,
+  Subtitles,
+  Video,
   Trash2,
 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
@@ -14,10 +18,20 @@ import './Header.css';
 
 const navItems = [
   {
-    label: 'Painel',
-    to: '/',
-    icon: LayoutDashboard,
+    label: 'Arquivos',
+    to: '/arquivos',
+    icon: FileVideo2,
     end: true,
+  },
+  {
+    label: 'Editor',
+    to: '/editor',
+    icon: Video,
+  },
+  {
+    label: 'Legendas',
+    to: '/legendas',
+    icon: Subtitles,
   },
   {
     label: 'Galeria',
@@ -25,9 +39,14 @@ const navItems = [
     icon: Images,
   },
   {
-    label: 'Arquivos',
-    to: '/arquivos',
-    icon: FileVideo2,
+    label: 'Projetos',
+    to: '/projetos',
+    icon: FolderOpen,
+  },
+  {
+    label: 'Biblioteca',
+    to: '/biblioteca',
+    icon: BookOpen,
   },
   {
     label: 'Favoritos',
@@ -38,6 +57,11 @@ const navItems = [
     label: 'Lixeira',
     to: '/lixeira',
     icon: Trash2,
+  },
+  {
+    label: 'Ajustes',
+    to: '/ajustes',
+    icon: Settings,
   },
 ];
 

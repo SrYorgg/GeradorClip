@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Folder, Subtitles, Volume2 } from 'lucide-react';
+import { subtitleFonts } from '../../lib/subtitleFonts';
 import { GalleryPackage, listGalleryPackages } from '../../lib/videoApi';
 import { Header } from '../main/Header';
 
@@ -11,6 +12,32 @@ function formatDate(value: string) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(value));
+}
+
+function formatSubtitleMode(value: string) {
+  const labels: Record<string, string> = {
+    automatic: 'Legenda automatica',
+    manual: 'Legenda manual',
+    none: 'Sem legenda',
+    'Legenda automatica': 'Legenda automatica',
+    'Sem legenda': 'Sem legenda',
+  };
+
+  return labels[value] || value;
+}
+
+function formatSubtitlePosition(value: string) {
+  const labels: Record<string, string> = {
+    bottom: 'Inferior',
+    middle: 'Centro',
+    top: 'Superior',
+  };
+
+  return labels[value] || value;
+}
+
+function formatSubtitleFont(value: string) {
+  return subtitleFonts.find((font) => font.id === value)?.label || value;
 }
 
 export function GalleryPage() {
@@ -32,7 +59,7 @@ export function GalleryPage() {
         <div className="gallery-heading">
           <div>
             <p className="eyebrow">Galeria</p>
-            <h1>Galeria</h1>
+            <h1>Cortes prontos</h1>
           </div>
           <span>{packages.length} pacotes exportados</span>
         </div>
@@ -44,7 +71,7 @@ export function GalleryPage() {
           <div className="route-panel gallery-empty">
             <Folder size={34} />
             <h2>Nenhum pacote exportado</h2>
-            <p>Gere clipes na pagina principal e use Exportar para enviar o pacote para ca.</p>
+            <p>Ajuste o layout no Editor, adicione as legendas e exporte os cortes prontos para ca.</p>
           </div>
         )}
 
@@ -64,8 +91,14 @@ export function GalleryPage() {
                 <div className="gallery-tools">
                   <span>
                     <Subtitles size={14} />
-                    {galleryPackage.subtitleMode}
+                    {formatSubtitleMode(galleryPackage.subtitleMode)}
                   </span>
+                  {galleryPackage.subtitleMode !== 'none' && galleryPackage.subtitleFont && (
+                    <span>{formatSubtitleFont(galleryPackage.subtitleFont)}</span>
+                  )}
+                  {galleryPackage.subtitleMode !== 'none' && galleryPackage.subtitlePosition && (
+                    <span>{formatSubtitlePosition(galleryPackage.subtitlePosition)}</span>
+                  )}
                   <span>
                     <Volume2 size={14} />
                     {galleryPackage.audioMode}

@@ -55,7 +55,9 @@ status = {
     "whisperx": module_available("whisperx"),
     "mediapipe": module_available("mediapipe"),
     "pyannote": module_available("pyannote.audio"),
-    "pyannoteToken": bool(os.environ.get("PYANNOTE_AUTH_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")),
+    "pyannoteToken": bool(
+        os.environ.get("PYANNOTE_AUTH_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN") or os.environ.get("HF_TOKEN")
+    ),
     "ollama": ollama_available(),
 }
 

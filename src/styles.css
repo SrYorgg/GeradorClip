@@ -445,6 +445,11 @@ button {
   align-items: start;
 }
 
+.right-column {
+  display: grid;
+  gap: 18px;
+}
+
 .generator-panel,
 .preview-panel,
 .clips-panel,
@@ -464,7 +469,7 @@ button {
 }
 
 .generator-panel {
-  min-height: 636px;
+  min-height: 0;
 }
 
 .route-panel {
@@ -475,6 +480,108 @@ button {
   margin: 14px 0 0;
   color: var(--muted);
   font-weight: 700;
+}
+
+.projects-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+.projects-heading h1 {
+  margin: 4px 0 8px;
+}
+
+.projects-heading p:last-child {
+  margin: 0;
+  color: var(--muted);
+}
+
+.projects-heading .secondary-action {
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 13px;
+  text-decoration: none;
+}
+
+.projects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.project-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 13px;
+  padding: 17px;
+  background: rgb(24 24 32 / 94%);
+  border: 1px solid #2f2f3d;
+  border-radius: 10px;
+}
+
+.project-card-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  color: #c4b5fd;
+  background: #2a2042;
+  border-radius: 8px;
+}
+
+.project-card-copy {
+  min-width: 0;
+}
+
+.project-card-copy h2 {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+  color: #ffffff;
+  font-size: 16px;
+}
+
+.project-card-copy p,
+.project-card-copy small {
+  display: block;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #a1a1aa;
+  font-size: 12px;
+}
+
+.project-card-copy small {
+  margin-top: 8px;
+  color: #a78bfa;
+}
+
+.project-card-link {
+  grid-column: 1 / -1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  color: #ffffff;
+  background: #6d28d9;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.projects-empty {
+  justify-items: center;
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  .projects-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
 .panel-heading {
@@ -596,13 +703,39 @@ h3 {
   font-weight: 800;
 }
 
-.setting-control select {
+.setting-control select,
+.setting-control input,
+.setting-control textarea {
   min-height: 44px;
   padding: 0 12px;
   color: var(--ink);
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #ffffff;
+  font: inherit;
+  font-weight: 800;
+}
+
+.setting-control textarea {
+  min-height: 96px;
+  padding: 12px;
+  resize: vertical;
+}
+
+.subtitle-settings {
+  display: grid;
+  gap: 14px;
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid #2f2f3d;
+}
+
+.subtitle-settings-heading h2 {
+  font-size: 17px;
+}
+
+.subtitle-position-control {
+  max-width: 260px;
 }
 
 .topic-row {
@@ -743,10 +876,6 @@ h3 {
   background: linear-gradient(180deg, var(--coral), var(--amber));
 }
 
-.clips-panel {
-  grid-column: 1 / 2;
-}
-
 .clip-list {
   display: grid;
   gap: 10px;
@@ -791,6 +920,26 @@ h3 {
   gap: 7px;
 }
 
+.clip-editor-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 8px;
+  color: #ddd6fe;
+  background: #241b38;
+  border: 1px solid #6d28d9;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.clip-editor-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .status {
   padding: 5px 8px;
   border-radius: 999px;
@@ -814,7 +963,6 @@ h3 {
 }
 
 .export-panel {
-  grid-column: 2 / 3;
   justify-content: space-between;
   gap: 18px;
   padding: 18px;
@@ -865,11 +1013,6 @@ h3 {
 
   .content-grid {
     grid-template-columns: 1fr;
-  }
-
-  .clips-panel,
-  .export-panel {
-    grid-column: auto;
   }
 
   .video-preview {
@@ -1087,6 +1230,8 @@ h3 {
 .searchbox,
 .source-input,
 .setting-control select,
+.setting-control input,
+.setting-control textarea,
 .clip-card,
 .insight-row > div,
 .audio-panel {
@@ -1097,8 +1242,27 @@ h3 {
 
 .searchbox input,
 .source-input input,
-.setting-control select {
+.setting-control select,
+.setting-control input,
+.setting-control textarea {
   color: #f5f3ff;
+}
+
+.setting-control input,
+.setting-control textarea {
+  caret-color: #ddd6fe;
+}
+
+.setting-control select:focus,
+.setting-control input:focus,
+.setting-control textarea:focus {
+  border-color: #8b5cf6;
+  outline: 2px solid rgb(139 92 246 / 28%);
+  outline-offset: 2px;
+}
+
+.setting-control select:disabled {
+  opacity: 0.52;
 }
 
 .searchbox input::placeholder,

@@ -1,31 +1,33 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Bell,
-  Check,
-  ChevronDown,
   Clock3,
   Download,
   Film,
   ListVideo,
-  Mic2,
   MoreHorizontal,
+  Pencil,
   Play,
   Search,
   Sparkles,
-  Subtitles,
   Wand2,
 } from 'lucide-react';
 import {
+  createProject,
   exportClipsToGallery,
   generateVideoClips,
   GeneratedClip,
   listUploadedVideos,
   UploadedVideo,
 } from '../../lib/videoApi';
+import { subtitleFonts } from '../../lib/subtitleFonts';
 import { Header } from '../main/Header';
-import { NewClipButton } from '../new-clip/NewClipButton';
+import { useNavigate } from 'react-router-dom';
 
-const topics = ['TikTok vertical', 'Legendas auto', 'Cortes por silencio', 'Remover pausas'];
+const MIN_CLIP_DURATION_SECONDS = 5;
+const MAX_CLIP_DURATION_SECONDS = 600;
+const MIN_CLIP_COUNT = 1;
+const MAX_CLIP_COUNT = 50;
 
 function formatDuration(seconds: number) {
   if (!Number.isFinite(seconds) || seconds <= 0) {
@@ -52,13 +54,20 @@ export function IndexPage() {
   const [videos, setVideos] = useState<UploadedVideo[]>([]);
   const [selectedVideoId, setSelectedVideoId] = useState('');
   const [selectedClipIds, setSelectedClipIds] = useState<string[]>([]);
-  const [captionClipIds, setCaptionClipIds] = useState<string[]>([]);
-  const [subtitleMode, setSubtitleMode] = useState('Legenda automatica');
-  const [audioMode, setAudioMode] = useState('Audio original');
+  const [cutMode, setCutMode] = useState<'duration' | 'count'>('count');
+  const [targetClipDurationSeconds, setTargetClipDurationSeconds] = useState(60);
+  const [targetClipCount, setTargetClipCount] = useState(5);
+  const [subtitleMode, setSubtitleMode] = useState<'none' | 'automatic' | 'manual'>('automatic');
+  const [manualSubtitleText, setManualSubtitleText] = useState('');
+  const [subtitleCorrections, setSubtitleCorrections] = useState('');
+  const [subtitleFont, setSubtitleFont] = useState(subtitleFonts[0].id);
+  const [subtitlePosition, setSubtitlePosition] = useState<'bottom' | 'middle' | 'top'>('bottom');
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [openingClipId, setOpeningClipId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
+  const navigate = useNavigate();
 
   useEffect(() => {
     listUploadedVideos()
@@ -84,11 +93,18 @@ export function IndexPage() {
       const filteredIds = currentIds.filter((id) => availableClipIds.includes(id));
       return filteredIds.length > 0 ? filteredIds : availableClipIds;
     });
-    setCaptionClipIds((currentIds) => {
-      const filteredIds = currentIds.filter((id) => availableClipIds.includes(id));
-      return filteredIds.length > 0 ? filteredIds : clips.filter((clip) => clip.shouldCaption).map((clip) => clip.id);
-    });
   }, [selectedVideoId, clips]);
+
+  const safeTargetClipDurationSeconds = Math.min(
+    MAX_CLIP_DURATION_SECONDS,
+    Math.max(MIN_CLIP_DURATION_SECONDS, Math.round(targetClipDurationSeconds || 0)),
+  );
+  const safeTargetClipCount = Math.min(
+    MAX_CLIP_COUNT,
+    Math.max(MIN_CLIP_COUNT, Math.round(targetClipCount || 0)),
+  );
+  const generateButtonLabel =
+    cutMode === 'count' ? `Criar ${safeTargetClipCount} rascunhos` : 'Criar rascunhos';
 
   async function createClips() {
     if (!selectedVideo) {
@@ -99,17 +115,44 @@ export function IndexPage() {
     try {
       setIsGenerating(true);
       setMessage('');
-      const { video, clips: generatedClips } = await generateVideoClips(selectedVideo.id);
+      const { video, clips: generatedClips } = await generateVideoClips(selectedVideo.id, {
+        mode: cutMode,
+        targetDurationSeconds: safeTargetClipDurationSeconds,
+        targetClipCount: safeTargetClipCount,
+      });
       setVideos((currentVideos) =>
         currentVideos.map((currentVideo) => (currentVideo.id === video.id ? video : currentVideo)),
       );
       setSelectedClipIds(generatedClips.map((clip) => clip.id));
-      setCaptionClipIds(generatedClips.map((clip) => clip.id));
-      setMessage('Clipes gerados para o pacote pronto.');
+      setMessage('Rascunhos criados. Abra um corte no Editor antes de exportar.');
     } catch {
       setMessage('Nao foi possivel gerar os clipes.');
     } finally {
       setIsGenerating(false);
+    }
+  }
+
+  async function openClipEditor(clip: GeneratedClip) {
+    if (!selectedVideo) {
+      return;
+    }
+
+    try {
+      setOpeningClipId(clip.id);
+      setMessage('Abrindo o corte no Editor...');
+      const project = await createProject({
+        videoId: selectedVideo.id,
+        clipIds: [clip.id],
+      });
+      const composition = project.compositions[0];
+      if (!composition) {
+        throw new Error('Composicao nao criada.');
+      }
+      navigate(`/projetos/${project.id}/cortes/${composition.id}/editor`);
+    } catch {
+      setMessage('Nao foi possivel abrir o corte no Editor.');
+    } finally {
+      setOpeningClipId(null);
     }
   }
 
@@ -119,17 +162,25 @@ export function IndexPage() {
       return;
     }
 
+    if (subtitleMode === 'manual' && !manualSubtitleText.trim()) {
+      setMessage('Digite a legenda manual antes de exportar.');
+      return;
+    }
+
     try {
       setIsExporting(true);
       setMessage('');
       await exportClipsToGallery({
         videoId: selectedVideo.id,
         clipIds: selectedClipIds,
-        captionClipIds,
         subtitleMode,
-        audioMode,
+        manualSubtitleText,
+        subtitleCorrections,
+        subtitleFont,
+        subtitlePosition,
+        audioMode: 'Audio original',
       });
-      setMessage('Pacote exportado para a pagina Galeria.');
+      setMessage('Pacote legendado exportado para a Galeria.');
     } catch {
       setMessage('Nao foi possivel exportar o pacote.');
     } finally {
@@ -145,17 +196,8 @@ export function IndexPage() {
     );
   }
 
-  function toggleCaptionSelection(clipId: string) {
-    setCaptionClipIds((currentIds) =>
-      currentIds.includes(clipId)
-        ? currentIds.filter((currentId) => currentId !== clipId)
-        : [...currentIds, clipId],
-    );
-  }
-
   function renderClipCard(clip: GeneratedClip) {
     const isSelected = selectedClipIds.includes(clip.id);
-    const willCaption = captionClipIds.includes(clip.id);
 
     return (
       <article className={`clip-card ${isSelected ? 'selected' : ''}`} key={clip.id}>
@@ -172,13 +214,18 @@ export function IndexPage() {
             <Clock3 size={14} />
             {clip.duration} - {clip.range}
           </span>
-          <label className="caption-toggle">
-            <input type="checkbox" checked={willCaption} onChange={() => toggleCaptionSelection(clip.id)} />
-            Legendar este clipe
-          </label>
         </div>
         <div className="clip-meta">
           <span className={`status ${clip.status.toLowerCase()}`}>{clip.status}</span>
+          <button
+            className="clip-editor-action"
+            type="button"
+            disabled={openingClipId === clip.id}
+            onClick={() => void openClipEditor(clip)}
+          >
+            <Pencil size={13} />
+            {openingClipId === clip.id ? 'Abrindo...' : 'Editar'}
+          </button>
         </div>
       </article>
     );
@@ -197,7 +244,6 @@ export function IndexPage() {
             <button className="icon-button" aria-label="Notificacoes">
               <Bell size={18} />
             </button>
-            <NewClipButton />
           </div>
         </header>
 
@@ -205,13 +251,9 @@ export function IndexPage() {
           <section className="generator-panel">
             <div className="panel-heading">
               <div>
-                <p className="eyebrow">Novo projeto</p>
-                <h1>Gere cortes prontos para publicar</h1>
+                <p className="eyebrow">Legendas</p>
+                <h1>Adicione legendas depois de editar o layout</h1>
               </div>
-              <button className="ghost-button">
-                Preset BR
-                <ChevronDown size={16} />
-              </button>
             </div>
 
             <div className="dropzone video-selector">
@@ -219,8 +261,8 @@ export function IndexPage() {
                 <ListVideo size={28} />
               </div>
               <div>
-                <h2>Selecione um video salvo</h2>
-                <p>Use apenas os videos que ja aparecem na pagina Arquivos.</p>
+                <h2>Selecione um video dos Arquivos</h2>
+                <p>Use o video ja estruturado no Editor para fechar as legendas dos cortes.</p>
               </div>
               <select
                 className="video-select"
@@ -240,134 +282,199 @@ export function IndexPage() {
 
             <div className="settings-grid">
               <label className="setting-control">
-                <span>Formato</span>
-                <select aria-label="Formato de saida">
-                  <option>9:16 vertical</option>
-                  <option>1:1 quadrado</option>
-                  <option>16:9 horizontal</option>
+                <span>Modo de corte</span>
+                <select
+                  aria-label="Modo de corte"
+                  value={cutMode}
+                  onChange={(event) => setCutMode(event.target.value as 'duration' | 'count')}
+                >
+                  <option value="duration">Duracao por corte</option>
+                  <option value="count">Quantidade de cortes</option>
                 </select>
               </label>
-              <label className="setting-control">
-                <span>Duracao alvo</span>
-                <select aria-label="Duracao alvo">
-                  <option>30-60 segundos</option>
-                  <option>60-90 segundos</option>
-                  <option>Ate 3 minutos</option>
-                </select>
-              </label>
-            </div>
-
-            <div className="topic-row" aria-label="Opcoes rapidas">
-              {topics.map((topic) => (
-                <button key={topic} className="chip">
-                  <Check size={14} />
-                  {topic}
-                </button>
-              ))}
+              {cutMode === 'duration' ? (
+                <label className="setting-control">
+                  <span>Duracao de cada corte</span>
+                  <input
+                    aria-label="Duracao de cada corte em segundos"
+                    min={MIN_CLIP_DURATION_SECONDS}
+                    max={MAX_CLIP_DURATION_SECONDS}
+                    step={5}
+                    type="number"
+                    value={targetClipDurationSeconds}
+                    onChange={(event) => setTargetClipDurationSeconds(Number(event.target.value))}
+                  />
+                </label>
+              ) : (
+                <label className="setting-control">
+                  <span>Quantidade de cortes</span>
+                  <input
+                    aria-label="Quantidade de cortes"
+                    min={MIN_CLIP_COUNT}
+                    max={MAX_CLIP_COUNT}
+                    step={1}
+                    type="number"
+                    value={targetClipCount}
+                    onChange={(event) => setTargetClipCount(Number(event.target.value))}
+                  />
+                </label>
+              )}
             </div>
 
             <button className="generate-button" disabled={!selectedVideo || isGenerating} onClick={createClips}>
               <Wand2 size={20} />
-              {isGenerating ? 'Gerando clips...' : 'Gerar clips agora'}
+              {isGenerating ? 'Gerando clips...' : generateButtonLabel}
             </button>
+
+            <div className="subtitle-settings">
+              <div className="subtitle-settings-heading">
+                <p className="eyebrow">Legenda</p>
+                <h2>Configurar legenda dos cortes</h2>
+              </div>
+
+              <div className="settings-grid">
+                <label className="setting-control">
+                  <span>Tipo de legenda</span>
+                  <select
+                    aria-label="Tipo de legenda"
+                    value={subtitleMode}
+                    onChange={(event) => setSubtitleMode(event.target.value as 'none' | 'automatic' | 'manual')}
+                  >
+                    <option value="automatic">Legenda automatica</option>
+                    <option value="manual">Legenda manual</option>
+                    <option value="none">Sem legenda</option>
+                  </select>
+                </label>
+                <label className="setting-control">
+                  <span>Fonte gratuita</span>
+                  <select
+                    aria-label="Fonte da legenda"
+                    value={subtitleFont}
+                    onChange={(event) => setSubtitleFont(event.target.value)}
+                    disabled={subtitleMode === 'none'}
+                  >
+                    {subtitleFonts.map((font) => (
+                      <option value={font.id} key={font.id}>
+                        {font.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <label className="setting-control subtitle-position-control">
+                <span>Posicao no video</span>
+                <select
+                  aria-label="Posicao da legenda"
+                  value={subtitlePosition}
+                  onChange={(event) => setSubtitlePosition(event.target.value as 'bottom' | 'middle' | 'top')}
+                  disabled={subtitleMode === 'none'}
+                >
+                  <option value="bottom">Inferior</option>
+                  <option value="middle">Centro</option>
+                  <option value="top">Superior</option>
+                </select>
+              </label>
+
+              {subtitleMode === 'manual' && (
+                <label className="setting-control">
+                  <span>Texto manual</span>
+                  <textarea
+                    aria-label="Texto da legenda manual"
+                    placeholder="Digite a legenda que sera aplicada aos cortes selecionados"
+                    value={manualSubtitleText}
+                    onChange={(event) => setManualSubtitleText(event.target.value)}
+                  />
+                </label>
+              )}
+
+              {subtitleMode === 'automatic' && (
+                <label className="setting-control">
+                  <span>Corrigir palavras</span>
+                  <textarea
+                    aria-label="Correcoes da legenda automatica"
+                    placeholder={'errado = correto\nRe bears = Recorda-me'}
+                    value={subtitleCorrections}
+                    onChange={(event) => setSubtitleCorrections(event.target.value)}
+                  />
+                </label>
+              )}
+            </div>
 
             {message && <p className="generator-message">{message}</p>}
           </section>
 
-          <section className="preview-panel">
-            <div className="video-preview selected-video-preview" aria-label="Preview do video selecionado">
-              {selectedVideo ? (
-                <video src={selectedVideo.url} controls preload="metadata" />
-              ) : (
-                <div className="empty-preview">
-                  <Play size={28} />
-                  <span>Selecione um video em Arquivos</span>
+          <div className="right-column">
+            <section className="preview-panel">
+              <div className="video-preview selected-video-preview" aria-label="Preview do video selecionado">
+                {selectedVideo ? (
+                  <video src={selectedVideo.url} controls preload="metadata" />
+                ) : (
+                  <div className="empty-preview">
+                    <Play size={28} />
+                    <span>Selecione um video em Arquivos</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="insight-row">
+                <div>
+                  <span className="metric-label">Duracao do video</span>
+                  <strong>{formatDuration(selectedVideo?.durationSeconds || 0)}</strong>
                 </div>
-              )}
-            </div>
+                <div>
+                  <span className="metric-label">Minutos</span>
+                  <strong>{formatMinutes(selectedVideo?.durationSeconds || 0)}</strong>
+                </div>
+              </div>
+            </section>
 
-            <div className="insight-row">
-              <div>
-                <span className="metric-label">Duracao do video</span>
-                <strong>{formatDuration(selectedVideo?.durationSeconds || 0)}</strong>
+            <section className="clips-panel">
+              <div className="panel-heading compact">
+                <div>
+                  <p className="eyebrow">Fila</p>
+                  <h2>Cortes gerados</h2>
+                </div>
+                <button className="icon-button" aria-label="Mais opcoes">
+                  <MoreHorizontal size={18} />
+                </button>
               </div>
-              <div>
-                <span className="metric-label">Minutos</span>
-                <strong>{formatMinutes(selectedVideo?.durationSeconds || 0)}</strong>
-              </div>
-            </div>
 
-            <div className="audio-panel subtitle-panel">
-              <div className="audio-title">
-                <Mic2 size={18} />
-                Legendas e audio
+              <div className="clip-list">
+                {clips.length > 0 ? (
+                  clips.map(renderClipCard)
+                ) : (
+                  <div className="clip-empty">
+                    <Film size={24} />
+                    <span>Gere os cortes para revisar as legendas antes de enviar para a Galeria.</span>
+                  </div>
+                )}
               </div>
-              <label className="setting-control">
-                <span>Legenda</span>
-                <select value={subtitleMode} onChange={(event) => setSubtitleMode(event.target.value)}>
-                  <option>Legenda automatica</option>
-                  <option>Legenda revisada</option>
-                  <option>Sem legenda</option>
-                </select>
-              </label>
-              <label className="setting-control">
-                <span>Audio</span>
-                <select value={audioMode} onChange={(event) => setAudioMode(event.target.value)}>
-                  <option>Audio original</option>
-                  <option>Audio limpo</option>
-                  <option>Audio com volume normalizado</option>
-                </select>
-              </label>
-            </div>
-          </section>
+            </section>
 
-          <section className="clips-panel">
-            <div className="panel-heading compact">
-              <div>
-                <p className="eyebrow">Fila</p>
-                <h2>Cortes gerados</h2>
+            <section className="export-panel package-panel">
+              <div className="export-copy">
+                <Sparkles size={20} />
+                <div>
+                  <h2>Pacote pronto</h2>
+                  <p>{selectedClips.length} clipes selecionados.</p>
+                  <div className="package-list">
+                    {selectedClips.map((clip) => (
+                      <span key={clip.id}>{clip.title}</span>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <button className="icon-button" aria-label="Mais opcoes">
-                <MoreHorizontal size={18} />
+              <button
+                className="secondary-action dark"
+                disabled={!selectedVideo || selectedClipIds.length === 0 || isExporting}
+                onClick={exportPackage}
+              >
+                <Download size={16} />
+                {isExporting ? 'Exportando...' : 'Exportar'}
               </button>
-            </div>
-
-            <div className="clip-list">
-              {clips.length > 0 ? (
-                clips.map(renderClipCard)
-              ) : (
-                <div className="clip-empty">
-                  <Subtitles size={24} />
-                  <span>Gere os clips para escolher quais cortes vao receber legenda.</span>
-                </div>
-              )}
-            </div>
-          </section>
-
-          <section className="export-panel package-panel">
-            <div className="export-copy">
-              <Sparkles size={20} />
-              <div>
-                <h2>Pacote pronto</h2>
-                <p>
-                  {selectedClips.length} clipes selecionados, {captionClipIds.length} marcados para legenda.
-                </p>
-                <div className="package-list">
-                  {selectedClips.map((clip) => (
-                    <span key={clip.id}>{clip.title}</span>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <button
-              className="secondary-action dark"
-              disabled={!selectedVideo || selectedClipIds.length === 0 || isExporting}
-              onClick={exportPackage}
-            >
-              <Download size={16} />
-              {isExporting ? 'Exportando...' : 'Exportar'}
-            </button>
-          </section>
+            </section>
+          </div>
         </div>
       </section>
     </main>

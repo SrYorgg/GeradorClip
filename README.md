@@ -1,187 +1,289 @@
 # GeradorClip
 
-GeradorClip e uma aplicacao local para enviar videos, gerar sugestoes de cortes, selecionar quais cortes serao legendados e exportar pacotes de clipes para uma galeria.
+GeradorClip é uma aplicação local para enviar vídeos, gerar sugestões de cortes, revisar o enquadramento, adicionar legendas e exportar pacotes de clipes.
 
-## O que a aplicacao faz
+## Funcionalidades
 
-- Envia videos para armazenamento local em `public/videos`.
-- Lista os videos enviados na pagina `/arquivos`.
-- Mostra miniaturas e player dos videos salvos.
-- Executa uma analise local opcional com `ffmpeg`, WhisperX, MediaPipe, Pyannote e Ollama.
-- Na pagina principal, seleciona um video ja salvo em `/arquivos`.
-- Gera cortes sugeridos a partir do video selecionado.
-- Permite escolher quais cortes entram no pacote final.
-- Permite marcar quais cortes devem receber legenda.
-- Exporta os cortes para pastas dentro de `public/gallery`.
-- Lista os pacotes exportados na pagina `/galeria`.
+- Upload e armazenamento local de vídeos em public/videos.
+- Lista de vídeos enviados em /arquivos.
+- Geração de cortes sugeridos por duração ou quantidade.
+- Análise opcional com ffmpeg, WhisperX, MediaPipe, Pyannote e Ollama.
+- Seleção dos cortes que entrarão no pacote final.
+- Legendas automáticas ou manuais.
+- Exportação de clipes para public/gallery.
+- Galeria local em /galeria.
 
-## Stack
+### Editor de composição — Ciclo 1
 
-- React
-- TypeScript
-- Vite
-- React Router
-- lucide-react
-- Express
-- Multer
-- Python para ferramentas de IA locais
+O editor fica disponível em /projetos e permite revisar cada corte antes da exportação:
+
+- Timeline com playhead, preview e seleção de segmentos.
+- Ajuste do início e fim de cada trecho.
+- Divisão no playhead, duplicação, exclusão e reordenação.
+- Histórico de desfazer/refazer.
+- Autosave com controle de revisão no backend.
+- Aprovação da composição sem gerar o MP4 imediatamente.
+- Formatos prontos 9:16, 4:5, 1:1, 16:9 e 4:3.
+- Dimensões customizadas do canvas.
+- Ajuste da área do vídeo dentro do canvas: posição, largura e altura.
+- Reenquadramento por corte: posição X/Y, zoom, rotação e modo de preenchimento.
+- Reposicionamento direto arrastando o vídeo no preview.
+- Cor de fundo e visualização da área segura.
+- Atalhos Ctrl/Cmd + Z, Ctrl/Cmd + Shift + Z e Ctrl/Cmd + S.
+
+> O Ciclo 1 salva a composição editável. O render final do MP4 usando todos os ajustes de layout será conectado à etapa de exportação posterior.
 
 ## Requisitos
 
-- Node.js
-- npm
-- Python 3.11 recomendado
-- ffmpeg instalado localmente
-- Ollama instalado localmente, se quiser usar LLM local
+- Node.js 20.19+ ou 22.12+.
+- npm.
+- Python 3.11 recomendado para as ferramentas de IA.
+- ffmpeg instalado e disponível no PATH para recortes e exportação.
+- Ollama instalado localmente, caso queira usar resumo e sugestões com LLM.
 
-Ferramentas opcionais de IA:
+WhisperX, MediaPipe/OpenCV, Pyannote e Ollama são opcionais. A aplicação principal e o editor podem ser usados sem eles.
 
-- WhisperX para transcricao
-- MediaPipe/OpenCV para analise visual simples
-- Pyannote para diarizacao de locutor
-- Ollama para resumo e ideias de cortes com LLM local
+## Instalação passo a passo
 
-## Como rodar apos clonar
+### 1. Baixe o projeto
 
-Instale as dependencias do Node:
+~~~
+git clone <URL_DO_REPOSITORIO>
+cd GeradorClip
+~~~
 
-```bash
+Se você recebeu a pasta do projeto por outro meio, apenas abra o terminal dentro de GeradorClip.
+
+### 2. Instale as dependências do Node
+
+~~~
 npm install
-```
+~~~
 
-Crie o ambiente Python:
+### 3. Prepare o ambiente Python
 
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r ai\requirements.txt
-```
+Windows PowerShell:
 
-Baixe um modelo no Ollama:
+~~~
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r ai\requirements.txt
+~~~
 
-```bash
+Linux/macOS:
+
+~~~
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r ai/requirements.txt
+~~~
+
+Se o PowerShell bloquear a ativação, execute no terminal:
+
+~~~
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+~~~
+
+### 4. Instale as ferramentas opcionais
+
+Para exportar usando recorte real, instale o ffmpeg e confirme:
+
+~~~
+ffmpeg -version
+~~~
+
+Para usar o Ollama, instale-o e baixe um modelo:
+
+~~~
 ollama pull llama3.2:1b
-```
+~~~
 
-Inicie a API local:
+### 5. Crie o .env automaticamente
 
-```bash
-npm run dev:api
-```
+Não é necessário copiar o .env.example manualmente.
 
-Em outro terminal, inicie o frontend:
+Na primeira execução de qualquer um dos comandos abaixo, o GeradorClip verifica se o .env existe:
 
-```bash
+~~~
 npm run dev
-```
+~~~
+
+ou:
+
+~~~
+npm run dev:api
+~~~
+
+Se o arquivo ainda não existir, o terminal solicitará o token Hugging Face/Pyannote. Cole o token e pressione Enter. Para continuar sem diarização, pressione apenas Enter.
+
+O arquivo .env será criado automaticamente com os valores padrão e o token informado em PYANNOTE_AUTH_TOKEN. Ele é ignorado pelo Git e nunca é exibido pela aplicação.
+
+Também é possível executar somente essa etapa:
+
+~~~
+npm run setup
+~~~
+
+Se o .env já existir, nenhum token será solicitado novamente. Para alterar a configuração, edite o .env local ou execute o setup depois de removê-lo.
+
+### 6. Inicie a aplicação
+
+Abra dois terminais na pasta do projeto.
+
+Terminal 1 — API:
+
+~~~
+npm run dev:api
+~~~
+
+Terminal 2 — frontend:
+
+~~~
+npm run dev
+~~~
 
 Acesse:
 
-```txt
+~~~
 http://localhost:5173
-```
+~~~
 
-## Variaveis de ambiente
+O backend fica em http://localhost:3333.
 
-Existe um arquivo `.env.example` com os nomes das variaveis usadas. Ele nao contem segredos reais.
+## Configuração e tokens
 
-Principais variaveis:
+O arquivo .env.example documenta todas as variáveis disponíveis:
 
-```env
+~~~
 API_PORT=3333
 PYTHON_BIN=.venv\Scripts\python.exe
 FFMPEG_BIN=
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=llama3.2:1b
 WHISPERX_MODEL=small
+FASTER_WHISPER_MODEL=small
 WHISPERX_DEVICE=cpu
 WHISPERX_COMPUTE_TYPE=int8
+WHISPER_VAD_FILTER=false
 PYANNOTE_AUTH_TOKEN=
 HUGGINGFACE_TOKEN=
-```
+HF_TOKEN=
+~~~
 
-No PowerShell, voce pode definir uma variavel temporaria assim:
+O único segredo usado atualmente é o token do Hugging Face para o Pyannote. O backend aceita PYANNOTE_AUTH_TOKEN, HUGGINGFACE_TOKEN ou HF_TOKEN; o assistente de primeiro uso salva o valor no primeiro campo.
 
-```powershell
-$env:PYANNOTE_AUTH_TOKEN="hf_seu_token"
-```
+Para obter o token:
 
-Para salvar no Windows:
+1. Crie ou acesse uma conta no Hugging Face.
+2. Aceite os termos dos modelos pyannote/segmentation-3.0 e pyannote/speaker-diarization-3.1.
+3. Crie um token de acesso com permissão de leitura em Settings > Access Tokens.
+4. Cole o token quando o npm run dev solicitar.
 
-```powershell
-setx PYANNOTE_AUTH_TOKEN "hf_seu_token"
-```
+Sem o token, a aplicação continua funcionando, mas a diarização de locutores fica indisponível. Sem Ollama, apenas o resumo e as sugestões baseadas em LLM local ficam indisponíveis.
 
-Depois de usar `setx`, feche e abra o terminal novamente.
+## Como usar
 
-## Token do Pyannote
+1. Acesse Arquivos e envie um vídeo.
+2. Em Legendas, selecione o vídeo e gere os cortes sugeridos.
+3. Abra um corte em Editar ou entre em Projetos.
+4. No editor, escolha a proporção desejada no inspector.
+5. Ajuste a área do vídeo e use o arraste no preview para posicionar a pessoa.
+6. Ajuste zoom, rotação, preenchimento e intervalo do trecho.
+7. Aguarde o autosave ou use Salvar rascunho.
+8. Atualize a página para confirmar a persistência.
+9. Clique em Aprovar corte quando o enquadramento estiver pronto.
 
-O Pyannote precisa de um token do Hugging Face para acessar alguns modelos.
+## Testes e validação
 
-Passos:
+Validação de TypeScript e build de produção:
 
-1. Crie ou entre na conta do Hugging Face.
-2. Aceite os termos dos modelos `pyannote/segmentation-3.0` e `pyannote/speaker-diarization-3.1`.
-3. Crie um token em `Settings > Access Tokens`.
-4. Use permissao de leitura.
-5. Defina `PYANNOTE_AUTH_TOKEN` ou `HUGGINGFACE_TOKEN` no ambiente local.
+~~~
+npm run build
+~~~
 
-Nunca coloque esse token no codigo, no README ou em arquivos versionados.
+Checagem de sintaxe do backend:
 
-## Publicacao no GitHub
+~~~
+node --check server/index.cjs
+node --check server/composition.cjs
+node --check scripts/setup-env.cjs
+~~~
 
-Antes de publicar, confira:
+Verificação rápida da API:
 
-- Nao subir `.env`.
-- Nao subir tokens reais.
-- Nao subir videos pessoais de `public/videos`.
-- Nao subir clipes exportados de `public/gallery`.
-- Nao subir `.venv`, `.cache`, `node_modules` ou `dist`.
+~~~
+Invoke-RestMethod http://localhost:3333/api/health
+Invoke-RestMethod http://localhost:3333/api/projects
+~~~
 
-O `.gitignore` ja ignora esses itens e mantem apenas `.gitkeep` nas pastas de videos e galeria.
-
-Se algum token real ja tiver sido commitado em algum momento, revogue o token no servico de origem e gere outro. Apagar o arquivo depois nao remove o segredo do historico do Git.
+O primeiro endpoint deve retornar { "ok": true }.
 
 ## Scripts
 
-```bash
+~~~
+npm run setup
+~~~
+
+Cria o .env na primeira execução e solicita o token disponível.
+
+~~~
 npm run dev
-```
+~~~
 
-Inicia o frontend Vite.
+Cria o .env se necessário e inicia o frontend Vite.
 
-```bash
+~~~
 npm run dev:api
-```
+~~~
 
-Inicia a API Express local.
+Cria o .env se necessário e inicia a API Express local.
 
-```bash
+~~~
 npm run build
-```
+~~~
 
-Valida TypeScript e gera o build de producao.
+Valida TypeScript e gera o build de produção.
 
-```bash
+~~~
 npm run preview
-```
+~~~
 
-Serve o build localmente para preview.
+Serve o build local para conferência.
 
 ## Estrutura principal
 
-```txt
+~~~text
 ai/                 Scripts Python e requirements de IA
+data/projects/      Composições e projetos salvos pelo editor
+scripts/            Setup automático do ambiente
 server/             API local Express
 src/                Frontend React/TypeScript
-public/videos/      Videos enviados localmente
+public/videos/      Vídeos enviados localmente
 public/gallery/     Pacotes exportados localmente
-```
+~~~
 
-## Observacoes
+## Solução de problemas
 
-- Os arquivos exportados sao gerados localmente.
-- O backend usa `ffmpeg` para recortar os clipes no momento da exportacao.
-- O primeiro uso do WhisperX pode baixar modelos e demorar.
-- Sem token do Pyannote, a aplicacao ainda funciona, mas a diarizacao fica pendente.
-- Sem Ollama rodando, a parte de resumo/ideias por LLM local fica indisponivel.
+### O terminal não solicita o token
+
+O .env já existe. Edite o arquivo local ou execute o setup novamente depois de removê-lo.
+
+### A porta 3333 já está em uso
+
+Encerre o processo que está usando a porta ou altere API_PORT no .env e o proxy correspondente em vite.config.ts.
+
+### A IA aparece como indisponível
+
+Confirme o ambiente em /api/ai/status. Verifique Python, as dependências de ai/requirements.txt, ffmpeg, Ollama e o token do Hugging Face.
+
+### O editor funciona, mas não há MP4 na galeria
+
+A aprovação do Ciclo 1 salva a composição editável. A geração final usando o novo layout será feita na etapa de exportação.
+
+## Segurança antes de publicar
+
+- Nunca versione .env ou tokens reais.
+- Não versione vídeos pessoais de public/videos.
+- Não versione clipes exportados de public/gallery.
+- Não versione .venv, .cache, node_modules ou dist.
+- Se um token já tiver sido publicado, revogue-o no serviço de origem e gere outro.

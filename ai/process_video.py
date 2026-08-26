@@ -104,9 +104,9 @@ def run_pyannote(audio_path):
     if not module_available("pyannote.audio"):
         return {"available": False, "message": "pyannote.audio nao instalado."}
 
-    token = os.environ.get("PYANNOTE_AUTH_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+    token = os.environ.get("PYANNOTE_AUTH_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN") or os.environ.get("HF_TOKEN")
     if not token:
-        return {"available": True, "ok": False, "message": "Configure PYANNOTE_AUTH_TOKEN ou HUGGINGFACE_TOKEN."}
+        return {"available": True, "ok": False, "message": "Configure PYANNOTE_AUTH_TOKEN, HUGGINGFACE_TOKEN ou HF_TOKEN."}
 
     try:
         from pyannote.audio import Pipeline

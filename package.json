@@ -4,8 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
-    "dev:api": "node server/index.cjs",
+    "setup": "node scripts/setup-env.cjs",
+    "dev": "node scripts/setup-env.cjs && vite --host 0.0.0.0",
+    "dev:api": "node scripts/setup-env.cjs && node server/index.cjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0"
   },

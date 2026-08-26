@@ -12,6 +12,14 @@
   font-weight: 800;
 }
 
+.files-heading-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
 .files-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 220px));
@@ -187,6 +195,15 @@
 }
 
 @media (max-width: 620px) {
+  .files-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .files-heading-actions {
+    justify-content: flex-start;
+  }
+
   .files-grid {
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   }

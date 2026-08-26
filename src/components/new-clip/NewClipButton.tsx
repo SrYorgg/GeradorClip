@@ -14,6 +14,10 @@ type SelectedVideo = {
   size: string;
 };
 
+type NewClipButtonProps = {
+  onUploaded?: () => void;
+};
+
 function formatDuration(seconds: number) {
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = Math.round(seconds % 60)
@@ -28,7 +32,7 @@ function formatFileSize(bytes: number) {
   return `${megabytes.toFixed(1)} MB`;
 }
 
-export function NewClipButton() {
+export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const [isOpen, setIsOpen] = useState(false);
@@ -122,6 +126,7 @@ export function NewClipButton() {
       setIsSending(true);
       await uploadVideo(selectedVideo.file, selectedVideo.durationSeconds);
       closeModal();
+      onUploaded?.();
       navigate('/arquivos');
     } catch {
       setError('Não foi possível armazenar o vídeo na aplicação.');

@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "id": "32e82c77-9043-4b20-b822-ec93a52a328e",
+  "title": "Projeto - 20260822_GrossBeautifulHerdEleGiggle-VMSdALyTnX3J9cju_source.mp4",
+  "sourceVideoId": "91b0818f-b5bf-4f43-ab78-81deb2153505",
+  "sourceName": "20260822_GrossBeautifulHerdEleGiggle-VMSdALyTnX3J9cju_source.mp4",
+  "assets": [
+    {
+      "id": "91b0818f-b5bf-4f43-ab78-81deb2153505",
+      "type": "video",
+      "name": "20260822_GrossBeautifulHerdEleGiggle-VMSdALyTnX3J9cju_source.mp4",
+      "url": "/videos/1787441533269-43320bcc-5697-4063-9b0e-01b16a072eb4-20260822_GrossBeautifulHerdEleGiggle-VMSdALyTnX3J9cju_source.mp4",
+      "durationSeconds": 60.001
+    }
+  ],
+  "compositions": [
+    {
+      "version": 1,
+      "id": "13063d64-f9c1-4892-b545-e40caa61d6dd",
+      "projectId": "32e82c77-9043-4b20-b822-ec93a52a328e",
+      "clipId": "ed0c9a04-e288-4fb2-b4f1-ec9d69be87e5",
+      "title": "Corte 01",
+      "canvas": {
+        "width": 1080,
+        "height": 1920,
+        "fps": 30
+      },
+      "durationMs": 12000,
+      "tracks": [
+        {
+          "id": "35fa1d73-8a8d-413d-a427-4213bd3d7fa2",
+          "kind": "video",
+          "items": [
+            {
+              "id": "7985b279-e9e2-454f-8fe8-67e88eb0cc73-b",
+              "assetId": "91b0818f-b5bf-4f43-ab78-81deb2153505",
+              "sourceInMs": 2000,
+              "sourceOutMs": 12000,
+              "timelineStartMs": 0,
+              "regionId": "main",
+              "transform": {
+                "x": 0,
+                "y": 0,
+                "scale": 1,
+                "cropMode": "cover"
+              }
+            },
+            {
+              "id": "7985b279-e9e2-454f-8fe8-67e88eb0cc73-a",
+              "assetId": "91b0818f-b5bf-4f43-ab78-81deb2153505",
+              "sourceInMs": 0,
+              "sourceOutMs": 2000,
+              "timelineStartMs": 10000,
+              "regionId": "main",
+              "transform": {
+                "x": 0,
+                "y": 0,
+                "scale": 1,
+                "cropMode": "cover"
+              }
+            }
+          ]
+        }
+      ],
+      "layout": {
+        "id": "vertical-main",
+        "name": "Vertical 9:16",
+        "regions": [
+          {
+            "id": "main",
+            "name": "Vídeo principal",
+            "xPct": 0,
+            "yPct": 0,
+            "widthPct": 100,
+            "heightPct": 100,
+            "visible": true
+          }
+        ]
+      },
+      "aiMetadata": {
+        "model": "geradorclip-drafts-v1",
+        "reasons": [
+          "Corte sugerido a partir do intervalo selecionado."
+        ]
+      },
+      "status": "approved",
+      "revision": 4,
+      "createdAt": "2026-08-26T20:46:15.316Z",
+      "updatedAt": "2026-08-26T20:49:41.220Z"
+    }
+  ],
+  "createdAt": "2026-08-26T20:46:15.316Z",
+  "updatedAt": "2026-08-26T20:49:41.220Z"
+}

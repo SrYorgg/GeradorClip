@@ -8,6 +8,7 @@ import {
   UploadedVideo,
 } from '../../lib/videoApi';
 import { Header } from '../main/Header';
+import { NewClipButton } from '../new-clip/NewClipButton';
 import './page.css';
 
 function formatDuration(seconds: number) {
@@ -31,12 +32,17 @@ export function FilesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
+  function loadVideos() {
+    setIsLoading(true);
+    setError('');
     listUploadedVideos()
       .then(setVideos)
       .catch(() => setError('Nao foi possivel carregar os videos da API local.'))
       .finally(() => setIsLoading(false));
+  }
 
+  useEffect(() => {
+    loadVideos();
     getAiStatus().then(setAiStatus).catch(() => setAiStatus(null));
   }, []);
 
@@ -128,7 +134,10 @@ export function FilesPage() {
             <p className="eyebrow">Arquivos</p>
             <h1>Arquivos</h1>
           </div>
-          <span>{videos.length} videos salvos</span>
+          <div className="files-heading-actions">
+            <span>{videos.length} videos salvos</span>
+            <NewClipButton onUploaded={loadVideos} />
+          </div>
         </div>
 
         {aiStatus && (
@@ -149,7 +158,7 @@ export function FilesPage() {
           <div className="route-panel files-empty">
             <FileVideo2 size={34} />
             <h2>Nenhum video enviado</h2>
-            <p>Use o botao Novo clip na pagina principal para adicionar um video de ate 10 minutos.</p>
+            <p>Use Novo clip para adicionar um video de ate 10 minutos. Depois siga para Editor.</p>
           </div>
         )}
 
