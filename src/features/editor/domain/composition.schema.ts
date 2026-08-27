@@ -7,7 +7,7 @@ export function isComposition(value: unknown): value is Composition {
 
   const composition = value as Partial<Composition>;
   return (
-    composition.version === 1 &&
+    (composition.version === 1 || composition.version === 2) &&
     typeof composition.id === 'string' &&
     typeof composition.projectId === 'string' &&
     typeof composition.clipId === 'string' &&

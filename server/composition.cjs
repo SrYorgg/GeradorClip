@@ -2,6 +2,70 @@ const crypto = require('crypto');
 
 const CANVAS = { width: 1080, height: 1920, fps: 30 };
 
+const DEFAULT_LAYOUT = {
+  id: 'vertical-main',
+  name: 'Vertical 9:16',
+  preset: 'vertical',
+  background: '#05050a',
+  showSafeArea: true,
+  regions: [
+    {
+      id: 'main',
+      name: 'Video principal',
+      xPct: 0,
+      yPct: 0,
+      widthPct: 100,
+      heightPct: 100,
+      visible: true,
+    },
+  ],
+};
+
+function cloneValue(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function normalizeLayoutConfig(layoutConfig) {
+  const requestedCanvas = layoutConfig?.canvas;
+  const canvas = requestedCanvas &&
+    Number.isFinite(Number(requestedCanvas.width)) &&
+    Number.isFinite(Number(requestedCanvas.height)) &&
+    Number.isFinite(Number(requestedCanvas.fps))
+    ? {
+        width: Math.min(3840, Math.max(320, Math.round(Number(requestedCanvas.width)))),
+        height: Math.min(3840, Math.max(320, Math.round(Number(requestedCanvas.height)))),
+        fps: Math.min(120, Math.max(1, Number(requestedCanvas.fps))),
+      }
+    : { ...CANVAS };
+  const requestedLayout = layoutConfig?.layout;
+  const regions = Array.isArray(requestedLayout?.regions) && requestedLayout.regions.length > 0
+    ? requestedLayout.regions
+        .filter((region) => region && typeof region.id === 'string')
+        .map((region, index) => {
+          const widthPct = Math.min(100, Math.max(5, Number(region.widthPct) || 100));
+          const heightPct = Math.min(100, Math.max(5, Number(region.heightPct) || 100));
+          return {
+            id: region.id,
+            name: String(region.name || `Area ${index + 1}`),
+            xPct: Math.min(100 - widthPct, Math.max(0, Number(region.xPct) || 0)),
+            yPct: Math.min(100 - heightPct, Math.max(0, Number(region.yPct) || 0)),
+            widthPct,
+            heightPct,
+            visible: region.visible !== false,
+          };
+        })
+    : cloneValue(DEFAULT_LAYOUT.regions);
+
+  return {
+    canvas,
+    layout: {
+      ...cloneValue(DEFAULT_LAYOUT),
+      ...(requestedLayout || {}),
+      regions: regions.length > 0 ? regions : cloneValue(DEFAULT_LAYOUT.regions),
+    },
+  };
+}
+
 function createTrackItem(video, clip, regionId = 'main') {
   const sourceInMs = Math.max(0, Math.round(Number(clip.startSeconds || 0) * 1000));
   const sourceOutMs = Math.max(sourceInMs + 100, Math.round(Number(clip.endSeconds || 1) * 1000));
@@ -13,6 +77,7 @@ function createTrackItem(video, clip, regionId = 'main') {
     sourceOutMs,
     timelineStartMs: 0,
     regionId,
+    mediaType: 'video',
     transform: {
       x: 0,
       y: 0,
@@ -23,17 +88,20 @@ function createTrackItem(video, clip, regionId = 'main') {
   };
 }
 
-function createComposition(projectId, video, clip, index = 0) {
+function createComposition(projectId, video, clip, layoutConfig, index = 0) {
   const now = new Date().toISOString();
-  const item = createTrackItem(video, clip);
+  const item = createTrackItem(video, clip, layoutConfig.layout.regions[0]?.id || 'main');
 
   return {
-    version: 1,
+    version: 2,
     id: crypto.randomUUID(),
     projectId,
     clipId: clip.id,
     title: clip.title || `Corte ${String(index + 1).padStart(2, '0')}`,
-    canvas: CANVAS,
+    analysisRef: {
+      transcriptId: video.analysisPath || `video:${video.id}:transcript`,
+    },
+    canvas: cloneValue(layoutConfig.canvas),
     durationMs: item.sourceOutMs - item.sourceInMs,
     tracks: [
       {
@@ -42,37 +110,136 @@ function createComposition(projectId, video, clip, index = 0) {
         items: [item],
       },
     ],
-    layout: {
-      id: 'vertical-main',
-      name: 'Vertical 9:16',
-      preset: 'vertical',
-      background: '#05050a',
-      showSafeArea: true,
-      regions: [
-        {
-          id: 'main',
-          name: 'Vídeo principal',
-          xPct: 0,
-          yPct: 0,
-          widthPct: 100,
-          heightPct: 100,
-          visible: true,
-        },
-      ],
+    captionSettings: {
+      mode: 'automatic',
+      manualText: '',
+      corrections: '',
+      font: 'inter',
+      position: 'bottom',
+      displayMode: 'block',
+      language: 'pt-BR',
     },
+    layout: cloneValue(layoutConfig.layout),
     aiMetadata: {
+      engine: 'GeradorClip Core',
       model: 'geradorclip-drafts-v1',
       reasons: ['Corte sugerido a partir do intervalo selecionado.'],
     },
     status: 'suggested',
+    review: {
+      status: 'pending',
+      issues: [],
+    },
+    selectedForExport: true,
     revision: 0,
     createdAt: now,
     updatedAt: now,
   };
 }
 
-function createProject(video, clips) {
+function normalizeComposition(composition) {
+  if (!composition || typeof composition !== 'object') {
+    return composition;
+  }
+
+  const normalizedComposition = {
+    ...composition,
+    version: 2,
+    analysisRef: composition.analysisRef || {
+      transcriptId: `composition:${composition.id}:transcript`,
+    },
+    aiMetadata: {
+      ...(composition.aiMetadata || {}),
+      engine: composition.aiMetadata?.engine || 'GeradorClip Core',
+      reasons: Array.isArray(composition.aiMetadata?.reasons) ? composition.aiMetadata.reasons : [],
+    },
+    captionSettings: {
+      mode: 'automatic',
+      manualText: '',
+      corrections: '',
+      font: 'inter',
+      position: 'bottom',
+      displayMode: 'block',
+      language: 'pt-BR',
+      ...(composition.captionSettings || {}),
+    },
+  };
+
+  const hasLegacyFramingIssue = normalizedComposition.review?.issues?.some((issue) =>
+    String(issue).includes('muito deslocado') || String(issue).includes('faixa recomendada'),
+  );
+
+  return hasLegacyFramingIssue
+    ? { ...normalizedComposition, review: reviewComposition(normalizedComposition) }
+    : normalizedComposition;
+}
+
+function reviewComposition(composition) {
+  const issues = [];
+  const videoTrack = composition?.tracks?.find((track) => track.kind === 'video');
+  const items = videoTrack?.items || [];
+  const regions = composition?.layout?.regions || [];
+
+  if (items.length === 0) {
+    issues.push('Nenhum trecho de vídeo foi encontrado nesta composição.');
+  }
+
+  for (const item of items) {
+    const transform = item.transform || {};
+    const region = regions.find((currentRegion) => currentRegion.id === item.regionId);
+
+    if (!region || region.visible === false) {
+      issues.push(`${item.id}: defina uma área visível para o vídeo.`);
+    } else if (
+      region.xPct < 0 ||
+      region.yPct < 0 ||
+      region.xPct + region.widthPct > 100 ||
+      region.yPct + region.heightPct > 100
+    ) {
+      issues.push(`${item.id}: a área do vídeo ultrapassa o canvas.`);
+    }
+
+    const positionX = Number(transform.x);
+    const positionY = Number(transform.y);
+    const scale = Number(transform.scale);
+    const rotation = Number(transform.rotation || 0);
+
+    if (![positionX, positionY, scale, rotation].every(Number.isFinite)) {
+      issues.push(`${item.id}: o enquadramento possui valores inválidos.`);
+    } else {
+      if (positionX < -100 || positionX > 100) {
+        issues.push(`${item.id}: a posição X está fora dos limites do Editor.`);
+      }
+
+      if (positionY < -100 || positionY > 100) {
+        issues.push(`${item.id}: a posição Y está fora dos limites do Editor.`);
+      }
+
+      if (scale < 0.5 || scale > 3) {
+        issues.push(`${item.id}: o zoom está fora dos limites do Editor.`);
+      }
+
+      if (rotation < -180 || rotation > 180) {
+        issues.push(`${item.id}: a rotação está fora dos limites do Editor.`);
+      }
+    }
+  }
+
+  const captionSettings = composition?.captionSettings;
+  if (captionSettings?.mode === 'manual' && !String(captionSettings.manualText || '').trim()) {
+    issues.push('A legenda manual está selecionada, mas ainda não possui texto.');
+  }
+
+  return {
+    status: issues.length > 0 ? 'needs-adjustment' : 'ready',
+    issues,
+    checkedAt: new Date().toISOString(),
+  };
+}
+
+function createProject(video, clips, requestedLayoutConfig = null) {
   const projectId = crypto.randomUUID();
+  const layoutConfig = normalizeLayoutConfig(requestedLayoutConfig);
   const selectedClips = clips.length > 0 ? clips : [
     {
       id: crypto.randomUUID(),
@@ -98,14 +265,15 @@ function createProject(video, clips) {
         durationSeconds: video.durationSeconds,
       },
     ],
-    compositions: selectedClips.map((clip, index) => createComposition(projectId, video, clip, index)),
+    compositions: selectedClips.map((clip, index) => createComposition(projectId, video, clip, layoutConfig, index)),
+    layoutTemplate: cloneValue(layoutConfig),
     createdAt: now,
     updatedAt: now,
   };
 }
 
 function isValidComposition(composition) {
-  if (!composition || composition.version !== 1) {
+  if (!composition || ![1, 2].includes(composition.version)) {
     return false;
   }
 
@@ -162,20 +330,31 @@ function isValidComposition(composition) {
   }
 
   return composition.tracks.every((track) =>
-    track && typeof track.id === 'string' && Array.isArray(track.items) && track.items.every((item) =>
+    track &&
+    typeof track.id === 'string' &&
+    ['video', 'audio', 'caption', 'media'].includes(track.kind) &&
+    Array.isArray(track.items) &&
+    track.items.every((item) =>
       item &&
       typeof item.id === 'string' &&
       typeof item.assetId === 'string' &&
+      typeof item.regionId === 'string' &&
       Number.isFinite(item.sourceInMs) &&
       Number.isFinite(item.sourceOutMs) &&
       item.sourceOutMs > item.sourceInMs &&
       Number.isFinite(item.timelineStartMs) &&
       item.transform &&
       Number.isFinite(item.transform.x) &&
+      item.transform.x >= -100 &&
+      item.transform.x <= 100 &&
       Number.isFinite(item.transform.y) &&
+      item.transform.y >= -100 &&
+      item.transform.y <= 100 &&
       Number.isFinite(item.transform.scale) &&
-      item.transform.scale > 0 &&
+      item.transform.scale >= (item.mediaType === 'image' ? 0.1 : 0.5) &&
+      item.transform.scale <= 3 &&
       ['cover', 'contain', 'custom'].includes(item.transform.cropMode) &&
+      (item.mediaType === undefined || ['video', 'image'].includes(item.mediaType)) &&
       (item.transform.rotation === undefined || Number.isFinite(item.transform.rotation)),
     ),
   );
@@ -185,4 +364,7 @@ module.exports = {
   CANVAS,
   createProject,
   isValidComposition,
+  normalizeComposition,
+  normalizeLayoutConfig,
+  reviewComposition,
 };

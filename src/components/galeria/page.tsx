@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Folder, Subtitles, Volume2 } from 'lucide-react';
+import { Folder, MonitorPlay, Subtitles, Volume2 } from 'lucide-react';
 import { subtitleFonts } from '../../lib/subtitleFonts';
 import { GalleryPackage, listGalleryPackages } from '../../lib/videoApi';
 import { Header } from '../main/Header';
@@ -58,8 +58,8 @@ export function GalleryPage() {
       <section className="workspace">
         <div className="gallery-heading">
           <div>
-            <p className="eyebrow">Galeria</p>
-            <h1>Cortes prontos</h1>
+            <p className="eyebrow">Etapa 6 de 6</p>
+            <h1>Cortes armazenados</h1>
           </div>
           <span>{packages.length} pacotes exportados</span>
         </div>
@@ -71,7 +71,7 @@ export function GalleryPage() {
           <div className="route-panel gallery-empty">
             <Folder size={34} />
             <h2>Nenhum pacote exportado</h2>
-            <p>Ajuste o layout no Editor, adicione as legendas e exporte os cortes prontos para ca.</p>
+            <p>Depois de selecionar os cortes, eles serão renderizados e armazenados nesta galeria.</p>
           </div>
         )}
 
@@ -89,6 +89,12 @@ export function GalleryPage() {
                 </div>
 
                 <div className="gallery-tools">
+                  {galleryPackage.canvas && (
+                    <span>
+                      <MonitorPlay size={14} />
+                      Formato {galleryPackage.canvas.width} × {galleryPackage.canvas.height}
+                    </span>
+                  )}
                   <span>
                     <Subtitles size={14} />
                     {formatSubtitleMode(galleryPackage.subtitleMode)}

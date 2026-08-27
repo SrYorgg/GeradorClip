@@ -1,5 +1,5 @@
-import type { CanvasPreset, Composition, Region, Track, TrackItem, Transform } from '../domain/editor.types';
-import { getLayoutPreset } from '../domain/layout';
+import type { CanvasPreset, CaptionSettings, Composition, Region, Track, TrackItem, Transform } from '../domain/editor.types';
+import { DEFAULT_TRANSFORM, getLayoutPreset } from '../domain/layout';
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -23,9 +23,11 @@ export type EditorAction =
   | { type: 'set-layout-preset'; preset: CanvasPreset }
   | { type: 'update-canvas-size'; width: number; height: number }
   | { type: 'update-layout-settings'; background?: string; showSafeArea?: boolean }
+  | { type: 'update-caption-settings'; settings: Partial<CaptionSettings> }
   | { type: 'update-region'; regionId: string; values: Partial<Pick<Region, 'xPct' | 'yPct' | 'widthPct' | 'heightPct'>> }
   | { type: 'update-transform'; itemId: string; transform: Partial<Transform> }
   | { type: 'reset-transform'; itemId: string }
+  | { type: 'add-image'; assetId: string }
   | { type: 'trim-item'; itemId: string; sourceInMs: number; sourceOutMs: number }
   | { type: 'split-item'; itemId: string; splitAtMs: number }
   | { type: 'delete-item'; itemId: string }
@@ -37,6 +39,16 @@ export type EditorAction =
   | { type: 'mark-saved'; composition: Composition };
 
 const MAX_HISTORY = 50;
+
+const DEFAULT_CAPTION_SETTINGS: CaptionSettings = {
+  mode: 'automatic',
+  manualText: '',
+  corrections: '',
+  font: 'inter',
+  position: 'bottom',
+  displayMode: 'block',
+  language: 'pt-BR',
+};
 
 function cloneComposition(composition: Composition): Composition {
   return JSON.parse(JSON.stringify(composition)) as Composition;
@@ -50,6 +62,18 @@ function getVideoTrack(composition: Composition): Track {
   };
 }
 
+function getVisualItems(composition: Composition): TrackItem[] {
+  return composition.tracks
+    .filter((track) => track.kind === 'video' || track.kind === 'media')
+    .flatMap((track) => track.items);
+}
+
+function getVisualTrackIndex(composition: Composition, itemId: string) {
+  return composition.tracks.findIndex(
+    (track) => (track.kind === 'video' || track.kind === 'media') && track.items.some((item) => item.id === itemId),
+  );
+}
+
 function reflowItems(items: TrackItem[]) {
   let timelineStartMs = 0;
 
@@ -61,12 +85,16 @@ function reflowItems(items: TrackItem[]) {
 }
 
 function withVideoItems(composition: Composition, items: TrackItem[]): Composition {
-  const tracks = composition.tracks.map((track) =>
-    track.kind === 'video' ? { ...track, items } : track,
-  );
   const durationMs = items.reduce(
     (total, item) => total + Math.max(item.sourceOutMs - item.sourceInMs, 100),
     0,
+  );
+  const tracks = composition.tracks.map((track) =>
+    track.kind === 'video'
+      ? { ...track, items }
+      : track.kind === 'media'
+        ? { ...track, items: track.items.map((item) => ({ ...item, sourceOutMs: durationMs })) }
+        : track,
   );
 
   return {
@@ -103,7 +131,7 @@ function withLayoutEdit(state: EditorState, nextComposition: Composition): Edito
 }
 
 export function createEditorState(composition: Composition): EditorState {
-  const firstItem = getVideoTrack(composition).items[0];
+  const firstItem = getVisualItems(composition)[0];
   return {
     composition,
     past: [],
@@ -181,7 +209,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       composition: previous,
       past,
       future: [current, ...state.future].slice(0, MAX_HISTORY),
-      selectedItemId: items[0]?.id || null,
+      selectedItemId: getVisualItems(previous)[0]?.id || null,
       playheadMs: Math.min(state.playheadMs, previous.durationMs),
       isDirty: true,
       saveState: 'idle',
@@ -201,7 +229,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       composition: next,
       past: [...state.past, current].slice(-MAX_HISTORY),
       future: state.future.slice(1),
-      selectedItemId: items[0]?.id || null,
+      selectedItemId: getVisualItems(next)[0]?.id || null,
       playheadMs: Math.min(state.playheadMs, next.durationMs),
       isDirty: true,
       saveState: 'idle',
@@ -212,7 +240,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     return {
       ...pushHistory(state, state.composition),
       composition: cloneComposition(action.composition),
-      selectedItemId: getVideoTrack(action.composition).items[0]?.id || null,
+      selectedItemId: getVisualItems(action.composition)[0]?.id || null,
       playheadMs: 0,
     };
   }
@@ -279,6 +307,18 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     return withLayoutEdit(state, nextComposition);
   }
 
+  if (action.type === 'update-caption-settings') {
+    return withLayoutEdit(state, {
+      ...state.composition,
+      captionSettings: {
+        ...DEFAULT_CAPTION_SETTINGS,
+        ...(state.composition.captionSettings || {}),
+        ...action.settings,
+      },
+      captionTrack: undefined,
+    });
+  }
+
   if (action.type === 'update-region') {
     const nextRegions = state.composition.layout.regions.map((region) => {
       if (region.id !== action.regionId) {
@@ -302,8 +342,39 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     });
   }
 
+  if (action.type === 'add-image') {
+    const mediaItem: TrackItem = {
+      id: `image-${action.assetId}-${Date.now()}`,
+      assetId: action.assetId,
+      sourceInMs: 0,
+      sourceOutMs: Math.max(state.composition.durationMs, 100),
+      timelineStartMs: 0,
+      regionId: state.composition.layout.regions[0]?.id || 'main',
+      mediaType: 'image',
+      transform: {
+        ...DEFAULT_TRANSFORM,
+        scale: 0.35,
+        cropMode: 'contain',
+      },
+    };
+    const mediaTrack = state.composition.tracks.find((track) => track.kind === 'media');
+    const tracks = mediaTrack
+      ? state.composition.tracks.map((track) => track.kind === 'media' ? { ...track, items: [...track.items, mediaItem] } : track)
+      : [
+          ...state.composition.tracks,
+          { id: `${state.composition.id}-media`, kind: 'media' as const, items: [mediaItem] },
+        ];
+    const nextState = withLayoutEdit(state, { ...state.composition, tracks });
+    return { ...nextState, selectedItemId: mediaItem.id };
+  }
+
   if (action.type === 'update-transform' || action.type === 'reset-transform') {
-    const currentTrack = getVideoTrack(state.composition);
+    const visualTrackIndex = getVisualTrackIndex(state.composition, action.itemId);
+    if (visualTrackIndex === -1) {
+      return state;
+    }
+
+    const currentTrack = state.composition.tracks[visualTrackIndex];
     const currentItems = currentTrack.items;
     const itemIndex = selectedIndex(currentItems, action.itemId);
     if (itemIndex === -1) {
@@ -311,6 +382,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
 
     const currentItem = currentItems[itemIndex];
+    const minimumScale = currentItem.mediaType === 'image' ? 0.1 : 0.5;
     const nextTransform = action.type === 'reset-transform'
       ? { ...currentItem.transform, x: 0, y: 0, scale: 1, rotation: 0, cropMode: 'cover' as const }
       : {
@@ -318,13 +390,16 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
           ...action.transform,
           x: clamp(Number(action.transform.x ?? currentItem.transform.x), -100, 100),
           y: clamp(Number(action.transform.y ?? currentItem.transform.y), -100, 100),
-          scale: clamp(Number(action.transform.scale ?? currentItem.transform.scale), 0.5, 3),
+          scale: clamp(Number(action.transform.scale ?? currentItem.transform.scale), minimumScale, 3),
           rotation: clamp(Number(action.transform.rotation ?? currentItem.transform.rotation ?? 0), -180, 180),
         };
     const nextItems = currentItems.map((item, index) =>
       index === itemIndex ? { ...item, transform: nextTransform } : item,
     );
-    return withLayoutEdit(state, withVideoItems(state.composition, nextItems));
+    const nextTracks = state.composition.tracks.map((track, index) =>
+      index === visualTrackIndex ? { ...track, items: nextItems } : track,
+    );
+    return withLayoutEdit(state, { ...state.composition, tracks: nextTracks });
   }
 
   const currentTrack = getVideoTrack(state.composition);

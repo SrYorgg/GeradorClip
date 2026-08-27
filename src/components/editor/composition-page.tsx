@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
+import type { ChangeEvent, CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import {
   ArrowDown,
   ArrowLeft,
@@ -8,6 +8,7 @@ import {
   Copy,
   Crop,
   Grid3X3,
+  ImagePlus,
   Move,
   Play,
   Redo2,
@@ -15,16 +16,22 @@ import {
   Save,
   Scissors,
   SlidersHorizontal,
+  Subtitles,
   Trash2,
   Undo2,
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   approveComposition,
+  deleteProjectImage,
+  generateProjectClips,
   getProject,
+  listUploadedVideos,
   saveComposition,
+  uploadProjectImage,
 } from '../../lib/videoApi';
-import type { CanvasPreset, Composition, CropMode, TrackItem } from '../../features/editor/domain/editor.types';
+import type { CanvasPreset, CaptionSettings, Composition, CropMode, TrackItem } from '../../features/editor/domain/editor.types';
+import type { UploadedVideo } from '../../lib/videoApi';
 import {
   getCanvasLabel,
   getCompositionRegion,
@@ -59,6 +66,14 @@ function getVideoItems(composition: Composition | null) {
   return composition?.tracks.find((track) => track.kind === 'video')?.items || [];
 }
 
+function getMediaItems(composition: Composition | null) {
+  return composition?.tracks.filter((track) => track.kind === 'media').flatMap((track) => track.items) || [];
+}
+
+function getVisualItems(composition: Composition | null) {
+  return [...getVideoItems(composition), ...getMediaItems(composition)];
+}
+
 function getItemDuration(item: TrackItem) {
   return Math.max(item.sourceOutMs - item.sourceInMs, 100);
 }
@@ -77,6 +92,102 @@ function getActivePreset(composition: Composition): CanvasPreset {
   )?.id || 'custom';
 }
 
+const DEFAULT_CAPTION_SETTINGS: CaptionSettings = {
+  mode: 'automatic',
+  manualText: '',
+  corrections: '',
+  font: 'inter',
+  position: 'bottom',
+  displayMode: 'block',
+  language: 'pt-BR',
+};
+
+function chunkPreviewCaptionText(value: string, maxCharacters = 36) {
+  const words = value.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  const chunks: string[] = [];
+  let current = '';
+
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (current && candidate.length > maxCharacters) {
+      chunks.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+
+  if (current) {
+    chunks.push(current);
+  }
+
+  return chunks;
+}
+
+function getPreviewCaptionText(composition: Composition, sourceVideo: UploadedVideo | null, playheadMs: number) {
+  const settings = { ...DEFAULT_CAPTION_SETTINGS, ...composition.captionSettings };
+  if (settings.mode === 'none') {
+    return '';
+  }
+
+  if (settings.mode === 'manual') {
+    const chunks = chunkPreviewCaptionText(settings.manualText || '');
+    if (chunks.length === 0) {
+      return '';
+    }
+
+    const slotDuration = Math.max(composition.durationMs, 1000) / chunks.length;
+    return chunks[Math.min(chunks.length - 1, Math.floor(playheadMs / slotDuration))] || '';
+  }
+
+  const currentTrack = composition.captionTrack;
+  if (currentTrack) {
+    if (settings.displayMode === 'word') {
+      return (currentTrack.words || [])
+        .filter((word) => playheadMs >= word.startMs && playheadMs <= word.endMs)
+        .map((word) => word.text)
+        .join(' ');
+    }
+
+    return (currentTrack.cues || [])
+      .filter((cue) => playheadMs >= cue.startMs && playheadMs <= cue.endMs)
+      .map((cue) => cue.text)
+      .join(' ');
+  }
+
+  const videoItem = getVideoItems(composition)[0];
+  const sourceTimeMs = (videoItem?.sourceInMs || 0) + Math.max(0, playheadMs - (videoItem?.timelineStartMs || 0));
+  const sourceSegments = sourceVideo?.analysis?.tools?.whisperx?.segments || [];
+  const segments = sourceSegments
+    .map((segment) => {
+      if (!segment || typeof segment !== 'object') {
+        return null;
+      }
+
+      const value = segment as { start?: unknown; end?: unknown; text?: unknown; words?: unknown[] };
+      const startMs = Number(value.start) * 1000;
+      const endMs = Number(value.end) * 1000;
+      return Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs
+        ? { startMs, endMs, text: String(value.text || ''), words: value.words || [] }
+        : null;
+    })
+    .filter((segment): segment is { startMs: number; endMs: number; text: string; words: unknown[] } => Boolean(segment));
+  const activeSegment = segments.find((segment) => sourceTimeMs >= segment.startMs && sourceTimeMs <= segment.endMs);
+
+  if (!activeSegment) {
+    return '';
+  }
+
+  if (settings.displayMode === 'word') {
+    const word = activeSegment.words
+      .map((value) => value as { start?: unknown; end?: unknown; word?: unknown; text?: unknown })
+      .find((value) => sourceTimeMs >= Number(value.start) * 1000 && sourceTimeMs <= Number(value.end) * 1000);
+    return word ? String(word.word || word.text || '') : '';
+  }
+
+  return activeSegment.text;
+}
+
 function getRatioLabel(width: number, height: number) {
   const divisor = (a: number, b: number): number => (b === 0 ? a : divisor(b, a % b));
   const gcd = divisor(Math.round(width), Math.round(height));
@@ -87,21 +198,48 @@ function getObjectPosition(value: number) {
   return `${clamp(50 + value / 2, 0, 100)}%`;
 }
 
+function getVisualStyle(composition: Composition, item: TrackItem, dragPreview: { itemId: string; x: number; y: number } | null): CSSProperties {
+  const region = getCompositionRegion(composition, item);
+  const baseTransform = getTransform(item);
+  const transform = dragPreview?.itemId === item.id
+    ? { ...baseTransform, x: dragPreview.x, y: dragPreview.y }
+    : baseTransform;
+  const isImage = item.mediaType === 'image';
+  const left = isImage ? region.xPct + (region.widthPct * transform.x) / 200 : region.xPct;
+  const top = isImage ? region.yPct + (region.heightPct * transform.y) / 200 : region.yPct;
+
+  return {
+    left: `${left}%`,
+    top: `${top}%`,
+    width: `${region.widthPct}%`,
+    height: `${region.heightPct}%`,
+    objectFit: transform.cropMode === 'contain' ? 'contain' : 'cover',
+    objectPosition: isImage ? '50% 50%' : `${getObjectPosition(transform.x)} ${getObjectPosition(transform.y)}`,
+    transform: `scale(${transform.scale}) rotate(${transform.rotation || 0}deg)`,
+  };
+}
+
 export function CompositionEditorPage() {
   const { projectId, clipId } = useParams();
   const navigate = useNavigate();
   const [project, setProject] = useState<Awaited<ReturnType<typeof getProject>> | null>(null);
+  const [sourceVideo, setSourceVideo] = useState<UploadedVideo | null>(null);
   const [state, dispatch] = useReducer(editorReducer, initialEditorState);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isGeneratingClips, setIsGeneratingClips] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [dragPreview, setDragPreview] = useState<{ itemId: string; x: number; y: number } | null>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isRemovingImageId, setIsRemovingImageId] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const latestCompositionRef = useRef<Composition | null>(null);
   const dragRef = useRef<{
     pointerId: number;
+    itemId: string;
     startX: number;
     startY: number;
     initialX: number;
@@ -116,8 +254,8 @@ export function CompositionEditorPage() {
 
     let isCurrent = true;
     setIsLoading(true);
-    getProject(projectId)
-      .then((loadedProject) => {
+    Promise.all([getProject(projectId), listUploadedVideos()])
+      .then(([loadedProject, videos]) => {
         if (!isCurrent) {
           return;
         }
@@ -127,6 +265,7 @@ export function CompositionEditorPage() {
           loadedProject.compositions[0];
 
         setProject(loadedProject);
+        setSourceVideo(videos.find((video) => video.id === loadedProject.sourceVideoId) || null);
         if (selectedComposition) {
           dispatch({ type: 'load', composition: selectedComposition });
         }
@@ -148,9 +287,16 @@ export function CompositionEditorPage() {
   }, [clipId, navigate, projectId]);
 
   const composition = state.composition;
+  const captionSettings = composition
+    ? { ...DEFAULT_CAPTION_SETTINGS, ...composition.captionSettings }
+    : DEFAULT_CAPTION_SETTINGS;
   const items = useMemo(() => getVideoItems(composition), [composition]);
-  const selectedItem = items.find((item) => item.id === state.selectedItemId) || items[0] || null;
-  const sourceAsset = project?.assets.find((asset) => asset.id === selectedItem?.assetId) || project?.assets[0];
+  const mediaItems = useMemo(() => getMediaItems(composition), [composition]);
+  const visualItems = useMemo(() => getVisualItems(composition), [composition]);
+  const selectedItem = visualItems.find((item) => item.id === state.selectedItemId) || visualItems[0] || null;
+  const playbackVideoItem = items.find((item) => item.id === state.selectedItemId) || items[0] || null;
+  const sourceAsset = project?.assets.find((asset) => asset.id === selectedItem?.assetId) || project?.assets.find((asset) => asset.type === 'video') || project?.assets[0];
+  const playbackAsset = project?.assets.find((asset) => asset.id === playbackVideoItem?.assetId) || project?.assets.find((asset) => asset.type === 'video');
   const selectedRegion = composition ? getCompositionRegion(composition, selectedItem) : null;
   const selectedTransform = getTransform(selectedItem);
   const visibleTransform = dragPreview && dragPreview.itemId === selectedItem?.id
@@ -163,16 +309,8 @@ export function CompositionEditorPage() {
         background: composition.layout.background || '#05050a',
       }
     : {};
-  const videoStyle: CSSProperties = selectedRegion
-    ? {
-        left: `${selectedRegion.xPct}%`,
-        top: `${selectedRegion.yPct}%`,
-        width: `${selectedRegion.widthPct}%`,
-        height: `${selectedRegion.heightPct}%`,
-        objectFit: visibleTransform.cropMode === 'contain' ? 'contain' : 'cover',
-        objectPosition: `${getObjectPosition(visibleTransform.x)} ${getObjectPosition(visibleTransform.y)}`,
-        transform: `scale(${visibleTransform.scale}) rotate(${visibleTransform.rotation || 0}deg)`,
-      }
+  const videoStyle: CSSProperties = composition && playbackVideoItem
+    ? getVisualStyle(composition, playbackVideoItem, dragPreview)
     : {};
   const regionFrameStyle: CSSProperties = selectedRegion
     ? {
@@ -182,6 +320,13 @@ export function CompositionEditorPage() {
         height: `${selectedRegion.heightPct}%`,
       }
     : {};
+  const previewCaptionText = composition
+    ? getPreviewCaptionText(composition, sourceVideo, state.playheadMs)
+    : '';
+  const previewCaptionStyle: CSSProperties = {
+    top: captionSettings.position === 'top' ? '12%' : captionSettings.position === 'middle' ? '50%' : '86%',
+    transform: captionSettings.position === 'middle' ? 'translate(-50%, -50%)' : 'translateX(-50%)',
+  };
 
   useEffect(() => {
     latestCompositionRef.current = composition;
@@ -189,9 +334,8 @@ export function CompositionEditorPage() {
 
   const seekToPlayhead = useCallback((playheadMs: number) => {
     const video = videoRef.current;
-    const item = latestCompositionRef.current?.tracks.find((track) => track.kind === 'video')?.items.find(
-      (currentItem) => currentItem.id === state.selectedItemId,
-    );
+    const videoItems = latestCompositionRef.current?.tracks.find((track) => track.kind === 'video')?.items || [];
+    const item = videoItems.find((currentItem) => currentItem.id === state.selectedItemId) || videoItems[0];
 
     if (!video || !item) {
       return;
@@ -290,27 +434,27 @@ export function CompositionEditorPage() {
 
   function handleTimeUpdate() {
     const video = videoRef.current;
-    if (!video || !selectedItem) {
+    if (!video || !playbackVideoItem) {
       return;
     }
 
     const sourceTimeMs = Math.round(video.currentTime * 1000);
-    const nextPlayhead = selectedItem.timelineStartMs + sourceTimeMs - selectedItem.sourceInMs;
+    const nextPlayhead = playbackVideoItem.timelineStartMs + sourceTimeMs - playbackVideoItem.sourceInMs;
     dispatch({ type: 'set-playhead', playheadMs: nextPlayhead });
 
-    if (sourceTimeMs >= selectedItem.sourceOutMs) {
+    if (sourceTimeMs >= playbackVideoItem.sourceOutMs) {
       video.pause();
       setIsPlaying(false);
       dispatch({
         type: 'set-playhead',
-        playheadMs: selectedItem.timelineStartMs + getItemDuration(selectedItem),
+        playheadMs: playbackVideoItem.timelineStartMs + getItemDuration(playbackVideoItem),
       });
     }
   }
 
   function togglePlayback() {
     const video = videoRef.current;
-    if (!video || !selectedItem) {
+    if (!video || !playbackVideoItem) {
       return;
     }
 
@@ -375,31 +519,111 @@ export function CompositionEditorPage() {
     });
   }
 
-  function handleCanvasPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (!selectedItem) {
+  async function handleImageUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+
+    if (!file || !project) {
       return;
     }
 
+    if (!file.type.startsWith('image/')) {
+      setError('Selecione uma imagem válida.');
+      return;
+    }
+
+    try {
+      setIsUploadingImage(true);
+      setError('');
+      if (state.isDirty && !(await persistComposition())) {
+        return;
+      }
+
+      const result = await uploadProjectImage(project.id, file, { addToLayout: true });
+      setProject(result.project);
+      const updatedComposition = result.project.compositions.find((currentComposition) => currentComposition.id === composition?.id);
+      const addedImage = updatedComposition
+        ? getMediaItems(updatedComposition).find((item) => item.assetId === result.asset.id)
+        : null;
+
+      if (updatedComposition) {
+        dispatch({ type: 'load', composition: updatedComposition });
+        if (addedImage) {
+          dispatch({ type: 'select-item', itemId: addedImage.id });
+        }
+      }
+
+      setMessage('Imagem adicionada ao layout compartilhado.');
+    } catch {
+      setError('Nao foi possivel adicionar a imagem ao projeto.');
+    } finally {
+      setIsUploadingImage(false);
+    }
+  }
+
+  async function handleImageRemove(assetId: string) {
+    if (!project || !assetId || isRemovingImageId) {
+      return;
+    }
+
+    const savedComposition = state.isDirty ? await persistComposition() : composition;
+    if (!savedComposition) {
+      return;
+    }
+
+    try {
+      setIsRemovingImageId(assetId);
+      setError('');
+      const updatedProject = await deleteProjectImage(project.id, assetId);
+      const updatedComposition = updatedProject.compositions.find((currentComposition) => currentComposition.id === savedComposition.id);
+
+      setProject(updatedProject);
+      if (updatedComposition) {
+        dispatch({ type: 'load', composition: updatedComposition });
+      }
+      setMessage('Imagem removida do layout compartilhado.');
+    } catch {
+      setError('Nao foi possivel remover a imagem do projeto.');
+    } finally {
+      setIsRemovingImageId(null);
+    }
+  }
+
+  function handleCanvasPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    const targetElement = event.target instanceof HTMLElement ? event.target : null;
+    const targetItemId = targetElement?.closest<HTMLElement>('[data-composition-item-id]')?.dataset.compositionItemId;
+    const dragItem = visualItems.find((item) => item.id === targetItemId) || selectedItem;
+
+    if (!dragItem) {
+      return;
+    }
+
+    if (dragItem.id !== selectedItem?.id) {
+      dispatch({ type: 'select-item', itemId: dragItem.id });
+    }
+
+    const dragTransform = getTransform(dragItem);
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = {
       pointerId: event.pointerId,
+      itemId: dragItem.id,
       startX: event.clientX,
       startY: event.clientY,
-      initialX: visibleTransform.x,
-      initialY: visibleTransform.y,
+      initialX: dragTransform.x,
+      initialY: dragTransform.y,
     };
-    setDragPreview({ itemId: selectedItem.id, x: visibleTransform.x, y: visibleTransform.y });
+    setDragPreview({ itemId: dragItem.id, x: dragTransform.x, y: dragTransform.y });
   }
 
   function handleCanvasPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
     const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId || !selectedItem) {
+    if (!drag || drag.pointerId !== event.pointerId) {
       return;
     }
 
     const bounds = event.currentTarget.getBoundingClientRect();
     setDragPreview({
-      itemId: selectedItem.id,
+      itemId: drag.itemId,
       x: clamp(drag.initialX + ((event.clientX - drag.startX) / bounds.width) * 200, -100, 100),
       y: clamp(drag.initialY + ((event.clientY - drag.startY) / bounds.height) * 200, -100, 100),
     });
@@ -407,14 +631,14 @@ export function CompositionEditorPage() {
 
   function handleCanvasPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
     const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId || !selectedItem) {
+    if (!drag || drag.pointerId !== event.pointerId) {
       return;
     }
 
     const bounds = event.currentTarget.getBoundingClientRect();
     const x = clamp(drag.initialX + ((event.clientX - drag.startX) / bounds.width) * 200, -100, 100);
     const y = clamp(drag.initialY + ((event.clientY - drag.startY) / bounds.height) * 200, -100, 100);
-    dispatch({ type: 'update-transform', itemId: selectedItem.id, transform: { x, y } });
+    dispatch({ type: 'update-transform', itemId: drag.itemId, transform: { x, y } });
     dragRef.current = null;
     setDragPreview(null);
   }
@@ -433,6 +657,33 @@ export function CompositionEditorPage() {
       setMessage('Corte aprovado para exportacao.');
     } catch {
       setError('Nao foi possivel aprovar o corte.');
+    }
+  }
+
+  async function generateCutsFromLayout() {
+    const savedComposition = state.isDirty ? await persistComposition() : composition;
+    if (!savedComposition || !project || !project.isLayoutDraft) {
+      return;
+    }
+    const currentProjectId = project.id;
+
+    try {
+      setIsGeneratingClips(true);
+      setError('');
+      const generatedProject = await generateProjectClips(currentProjectId);
+      const firstComposition = generatedProject.compositions[0];
+      setProject(generatedProject);
+
+      if (firstComposition) {
+        dispatch({ type: 'load', composition: firstComposition });
+        navigate(`/projetos/${generatedProject.id}/cortes/${firstComposition.id}/editor`, { replace: true });
+      }
+
+      setMessage('Layout salvo. Cortes gerados para revisão.');
+    } catch {
+      setError('Nao foi possivel gerar os cortes a partir deste layout.');
+    } finally {
+      setIsGeneratingClips(false);
     }
   }
 
@@ -477,10 +728,23 @@ export function CompositionEditorPage() {
             <Save size={16} />
             {isSaving ? 'Salvando...' : 'Salvar rascunho'}
           </button>
-          <button className="composition-approve" type="button" disabled={isSaving || composition.status === 'approved'} onClick={() => void approveCurrentComposition()}>
-            <Check size={16} />
-            Aprovar corte
-          </button>
+          {project.isLayoutDraft ? (
+            <button className="composition-next" type="button" disabled={isSaving || isGeneratingClips} onClick={() => void generateCutsFromLayout()}>
+              <Scissors size={16} />
+              {isGeneratingClips ? 'Gerando cortes...' : 'Salvar layout e gerar cortes'}
+            </button>
+          ) : (
+            <button className="composition-approve" type="button" disabled={isSaving || composition.status === 'approved'} onClick={() => void approveCurrentComposition()}>
+              <Check size={16} />
+              Aprovar corte
+            </button>
+          )}
+          {composition.status === 'approved' && (
+            <button className="composition-next" type="button" onClick={() => navigate(`/legendas?projectId=${project.id}`)}>
+              <Subtitles size={16} />
+              Produzir legenda
+            </button>
+          )}
         </div>
       </header>
 
@@ -489,7 +753,7 @@ export function CompositionEditorPage() {
           <div className="composition-panel-heading">
             <div>
               <span className="composition-eyebrow">Rascunhos</span>
-              <h2>Cortes sugeridos</h2>
+              <h2>{project.isLayoutDraft ? 'Layout base' : 'Cortes sugeridos'}</h2>
             </div>
             <span>{project.compositions.length}</span>
           </div>
@@ -508,7 +772,7 @@ export function CompositionEditorPage() {
           </div>
           <div className="proposal-help">
             <Scissors size={17} />
-            <p>Abra um rascunho, ajuste o intervalo e aprove antes de exportar.</p>
+            <p>{project.isLayoutDraft ? 'Edite este layout com o vídeo inteiro. Ao gerar os cortes, o formato e as imagens serão copiados para todos eles.' : 'Formato, fundo e imagens são compartilhados por todos os cortes. Ajuste apenas o intervalo e o enquadramento do vídeo quando trocar de corte.'}</p>
           </div>
         </aside>
 
@@ -530,10 +794,11 @@ export function CompositionEditorPage() {
             role="application"
             aria-label="Preview interativo. Arraste para reposicionar o vídeo."
           >
-            {sourceAsset && (
+            {playbackAsset && (
               <video
                 ref={videoRef}
-                src={sourceAsset.url}
+                data-composition-item-id={playbackVideoItem.id}
+                src={playbackAsset.url}
                 style={videoStyle}
                 preload="metadata"
                 playsInline
@@ -541,6 +806,34 @@ export function CompositionEditorPage() {
                 onPlay={() => setIsPlaying(true)}
                 onPause={() => setIsPlaying(false)}
               />
+            )}
+            {composition && mediaItems.map((item) => {
+              const asset = project?.assets.find((currentAsset) => currentAsset.id === item.assetId);
+              if (!asset) {
+                return null;
+              }
+
+              return (
+                <img
+                  key={item.id}
+                  data-composition-item-id={item.id}
+                  className={`composition-media-image ${item.id === selectedItem?.id ? 'selected' : ''}`}
+                  src={asset.url}
+                  alt={asset.name}
+                  draggable={false}
+                  style={getVisualStyle(composition, item, dragPreview)}
+                  onClick={() => dispatch({ type: 'select-item', itemId: item.id })}
+                />
+              );
+            })}
+            {captionSettings.mode !== 'none' && previewCaptionText && (
+              <div
+                className={`composition-caption-overlay ${captionSettings.displayMode === 'word' ? 'word' : ''}`}
+                style={{ ...previewCaptionStyle, fontFamily: captionSettings.font || 'Inter, sans-serif' }}
+                aria-label="Prévia da legenda"
+              >
+                {previewCaptionText}
+              </div>
             )}
             {composition.layout.showSafeArea !== false && <div className="composition-safe-area" aria-hidden="true" />}
             {selectedRegion && <div className="composition-region-frame" style={regionFrameStyle} aria-hidden="true" />}
@@ -618,9 +911,120 @@ export function CompositionEditorPage() {
             </div>
           </div>
 
+          <div className="inspector-section caption-section">
+            <div className="inspector-section-title">
+              <Subtitles size={15} />
+              <span className="inspector-label">Legenda na edição</span>
+            </div>
+            <label>
+              Modo da legenda
+              <select
+                value={captionSettings.mode}
+                onChange={(event) => dispatch({ type: 'update-caption-settings', settings: { mode: event.target.value as CaptionSettings['mode'] } })}
+              >
+                <option value="automatic">Automática</option>
+                <option value="manual">Manual</option>
+                <option value="none">Sem legenda</option>
+              </select>
+            </label>
+            {captionSettings.mode === 'manual' && (
+              <label>
+                Texto da legenda
+                <textarea
+                  value={captionSettings.manualText || ''}
+                  rows={4}
+                  placeholder="Digite a legenda que será exibida no vídeo"
+                  onChange={(event) => dispatch({ type: 'update-caption-settings', settings: { manualText: event.target.value } })}
+                />
+              </label>
+            )}
+            <div className="inspector-fields">
+              <label>
+                Posição
+                <select
+                  value={captionSettings.position}
+                  disabled={captionSettings.mode === 'none'}
+                  onChange={(event) => dispatch({ type: 'update-caption-settings', settings: { position: event.target.value as CaptionSettings['position'] } })}
+                >
+                  <option value="top">Superior</option>
+                  <option value="middle">Centro</option>
+                  <option value="bottom">Inferior</option>
+                </select>
+              </label>
+              <label>
+                Exibição
+                <select
+                  value={captionSettings.displayMode}
+                  disabled={captionSettings.mode === 'none'}
+                  onChange={(event) => dispatch({ type: 'update-caption-settings', settings: { displayMode: event.target.value as CaptionSettings['displayMode'] } })}
+                >
+                  <option value="block">Em blocos</option>
+                  <option value="word">Palavra a palavra</option>
+                </select>
+              </label>
+            </div>
+            <label>
+              Idioma
+              <select
+                value={captionSettings.language}
+                disabled={captionSettings.mode === 'none'}
+                onChange={(event) => dispatch({ type: 'update-caption-settings', settings: { language: event.target.value as CaptionSettings['language'] } })}
+              >
+                <option value="pt-BR">Português traduzido</option>
+                <option value="original">Idioma original</option>
+              </select>
+            </label>
+            <p className="inspector-muted">
+              A legenda é preparada ao salvar este layout, antes da geração dos cortes, e sempre fica acima das imagens.
+            </p>
+            {!composition.captionTrack && captionSettings.mode === 'automatic' && !sourceVideo?.analysis?.tools?.whisperx?.segments?.length && (
+              <p className="inspector-warning">A análise de voz ainda não está disponível para mostrar a prévia.</p>
+            )}
+          </div>
+
+          <div className="inspector-section media-section">
+            <div className="inspector-section-title">
+              <ImagePlus size={15} />
+              <span className="inspector-label">Imagens do layout</span>
+            </div>
+            <label className="image-upload-button">
+              <ImagePlus size={15} />
+              {isUploadingImage ? 'Enviando imagem...' : 'Adicionar imagem'}
+              <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={handleImageUpload} disabled={isUploadingImage} />
+            </label>
+            {mediaItems.length > 0 ? (
+              <div className="media-item-list">
+                {mediaItems.map((item) => {
+                  const asset = project.assets.find((currentAsset) => currentAsset.id === item.assetId);
+                  return (
+                    <div className="media-item-row" key={item.id}>
+                      <button className={`media-item-button ${item.id === selectedItem?.id ? 'active' : ''}`} type="button" onClick={() => dispatch({ type: 'select-item', itemId: item.id })}>
+                        <span>{asset?.name || 'Imagem do projeto'}</span>
+                        <small>Selecionar</small>
+                      </button>
+                      <button
+                        className="media-item-remove"
+                        type="button"
+                        title="Remover imagem"
+                        aria-label={`Remover ${asset?.name || 'imagem'}`}
+                        disabled={isRemovingImageId === item.assetId}
+                        onClick={() => void handleImageRemove(item.assetId)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="inspector-muted">Adicione uma marca, moldura ou imagem de apoio. Ela será replicada em todos os cortes.</p>
+            )}
+            <p className="inspector-muted">O canvas e as imagens são compartilhados; ajuste apenas o enquadramento do vídeo em cada corte.</p>
+          </div>
+
           {selectedItem && (
             <>
-              <div className="inspector-section">
+              {selectedItem.mediaType !== 'image' && <div className="inspector-section">
                 <span className="inspector-label">Intervalo do trecho</span>
                 <div className="inspector-fields">
                   <label>
@@ -633,7 +1037,7 @@ export function CompositionEditorPage() {
                   </label>
                 </div>
                 <p className="inspector-muted">Precisao de 100 ms · {formatTime(getItemDuration(selectedItem))}</p>
-              </div>
+              </div>}
 
               <div className="inspector-section">
                 <div className="inspector-section-title">
@@ -678,7 +1082,7 @@ export function CompositionEditorPage() {
                 </div>
                 <label className="range-field">
                   <span>Zoom <strong>{visibleTransform.scale.toFixed(2)}×</strong></span>
-                  <input type="range" min="0.5" max="3" step="0.01" value={visibleTransform.scale} onChange={(event) => updateTransform('scale', event.target.value)} />
+                  <input type="range" min={selectedItem.mediaType === 'image' ? '0.1' : '0.5'} max="3" step="0.01" value={visibleTransform.scale} onChange={(event) => updateTransform('scale', event.target.value)} />
                 </label>
                 <div className="inspector-fields">
                   <label>
@@ -701,7 +1105,7 @@ export function CompositionEditorPage() {
                 <p className="inspector-muted">Arraste no preview ou use X/Y para encontrar a pessoa no quadro.</p>
               </div>
 
-              <div className="inspector-section inspector-actions">
+              {selectedItem.mediaType !== 'image' && <div className="inspector-section inspector-actions">
                 <span className="inspector-label">Comandos reversiveis</span>
                 <button type="button" onClick={() => dispatch({ type: 'split-item', itemId: selectedItem.id, splitAtMs: state.playheadMs })}>
                   <Scissors size={15} />
@@ -715,9 +1119,9 @@ export function CompositionEditorPage() {
                   <Copy size={15} />
                   Duplicar segmento
                 </button>
-              </div>
+              </div>}
 
-              <div className="inspector-section inspector-actions">
+              {selectedItem.mediaType !== 'image' && <div className="inspector-section inspector-actions">
                 <span className="inspector-label">Ordem</span>
                 <div className="inspector-order-actions">
                   <button type="button" onClick={() => dispatch({ type: 'move-item', itemId: selectedItem.id, direction: 'up' })}>
@@ -729,7 +1133,7 @@ export function CompositionEditorPage() {
                     Descer
                   </button>
                 </div>
-              </div>
+              </div>}
             </>
           )}
           <div className="inspector-ai-note">

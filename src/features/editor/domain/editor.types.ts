@@ -25,6 +25,7 @@ export type TrackItem = {
   timelineStartMs: number;
   regionId: string;
   transform: Transform;
+  mediaType?: 'video' | 'image';
 };
 
 export type Track = {
@@ -52,6 +53,11 @@ export type LayoutDefinition = {
   regions: Region[];
 };
 
+export type LayoutConfig = {
+  canvas: Canvas;
+  layout: LayoutDefinition;
+};
+
 export type CaptionWord = {
   id: string;
   text: string;
@@ -59,6 +65,13 @@ export type CaptionWord = {
   endMs: number;
   confidence?: number;
   speakerId?: string;
+};
+
+export type CaptionCue = {
+  id: string;
+  text: string;
+  startMs: number;
+  endMs: number;
 };
 
 export type CaptionPlacement = {
@@ -72,27 +85,73 @@ export type CaptionPlacement = {
 
 export type CaptionTrack = {
   id: string;
-  words: CaptionWord[];
+  cues?: CaptionCue[];
+  words?: CaptionWord[];
   placement: CaptionPlacement;
+  displayMode?: CaptionDisplayMode;
+  language?: CaptionLanguage;
+};
+
+export type AnalysisReference = {
+  transcriptId?: string;
+  visionId?: string;
+  speakerId?: string;
+};
+
+export type FramingKeyframe = {
+  timeMs: number;
+  x: number;
+  y: number;
+  scale: number;
+  rotation?: number;
+};
+
+export type CaptionMode = 'none' | 'automatic' | 'manual';
+export type CaptionPosition = 'top' | 'middle' | 'bottom';
+export type CaptionDisplayMode = 'block' | 'word';
+export type CaptionLanguage = 'original' | 'pt-BR';
+
+export type CaptionSettings = {
+  mode: CaptionMode;
+  manualText?: string;
+  corrections?: string;
+  font?: string;
+  position?: CaptionPosition;
+  displayMode?: CaptionDisplayMode;
+  language?: CaptionLanguage;
+};
+
+export type CompositionReview = {
+  status: 'pending' | 'ready' | 'needs-adjustment';
+  issues: string[];
+  checkedAt?: string;
 };
 
 export type Composition = {
-  version: 1;
+  version: 1 | 2;
   id: string;
   projectId: string;
   clipId: string;
   title: string;
+  analysisRef?: AnalysisReference;
   canvas: Canvas;
   durationMs: number;
   tracks: Track[];
   captionTrack?: CaptionTrack;
+  captionSettings?: CaptionSettings;
   layout: LayoutDefinition;
+  framingTrack?: FramingKeyframe[];
+  templateSnapshotId?: string;
+  brandKitSnapshotId?: string;
   aiMetadata?: {
+    engine?: string;
     model?: string;
     confidence?: number;
     reasons: string[];
   };
   status: ClipStatus;
+  review?: CompositionReview;
+  selectedForExport?: boolean;
   revision: number;
   createdAt: string;
   updatedAt: string;
@@ -103,6 +162,7 @@ export type ProjectAsset = {
   type: 'video' | 'image';
   name: string;
   url: string;
+  fileName?: string;
   durationSeconds?: number;
 };
 
@@ -114,6 +174,8 @@ export type Project = {
   sourceName: string;
   assets: ProjectAsset[];
   compositions: Composition[];
+  layoutTemplate?: LayoutConfig;
+  isLayoutDraft?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -121,5 +183,6 @@ export type Project = {
 export type ProjectSummary = Pick<Project, 'id' | 'title' | 'sourceVideoId' | 'sourceName' | 'createdAt' | 'updatedAt'> & {
   compositionCount: number;
   firstCompositionId?: string;
+  isLayoutDraft?: boolean;
   statuses: Record<ClipStatus, number>;
 };

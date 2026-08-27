@@ -84,14 +84,52 @@ def run_whisperx(audio_path):
         device = os.environ.get("WHISPERX_DEVICE", "cpu")
         model_name = os.environ.get("WHISPERX_MODEL", "small")
         model = whisperx.load_model(model_name, device, compute_type=os.environ.get("WHISPERX_COMPUTE_TYPE", "int8"))
-        result = model.transcribe(str(audio_path))
+        vad_filter = os.environ.get("WHISPER_VAD_FILTER", "true").lower() == "true"
+        beam_size = int(os.environ.get("WHISPER_BEAM_SIZE", "5"))
+        transcribe_options = {
+            "word_timestamps": True,
+            "condition_on_previous_text": False,
+            "beam_size": max(1, beam_size),
+            "temperature": 0.0,
+            "vad_filter": vad_filter,
+        }
+        if vad_filter:
+            transcribe_options["vad_parameters"] = {"min_silence_duration_ms": 500}
+        try:
+            result = model.transcribe(str(audio_path), **transcribe_options)
+        except TypeError:
+            try:
+                result = model.transcribe(
+                    str(audio_path),
+                    word_timestamps=True,
+                    condition_on_previous_text=False,
+                )
+            except TypeError:
+                result = model.transcribe(str(audio_path))
         segments = result.get("segments", [])
+        filtered_segments = []
+        for segment in segments:
+            text = str(segment.get("text", "")).strip()
+            no_speech_probability = segment.get("no_speech_prob")
+            average_log_probability = segment.get("avg_logprob")
+            if (
+                text
+                and no_speech_probability is not None
+                and average_log_probability is not None
+                and float(no_speech_probability) >= 0.6
+                and float(average_log_probability) <= -1.0
+            ):
+                continue
+            if text:
+                filtered_segments.append({**segment, "text": text})
+        segments = filtered_segments
         text = " ".join(segment.get("text", "").strip() for segment in segments).strip()
 
         return {
             "available": True,
             "ok": True,
             "model": model_name,
+            "transcriptionVersion": 3,
             "language": result.get("language"),
             "text": text,
             "segments": segments,

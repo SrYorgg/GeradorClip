@@ -104,6 +104,12 @@
   border-color: #bbf7d0 !important;
 }
 
+.composition-next {
+  color: #ffffff !important;
+  background: linear-gradient(135deg, #7c3aed, #a78bfa) !important;
+  border-color: transparent !important;
+}
+
 .composition-workspace {
   display: grid;
   grid-template-columns: minmax(220px, 0.7fr) minmax(360px, 1.2fr) minmax(250px, 0.8fr);
@@ -209,8 +215,6 @@
   position: relative;
   display: grid;
   width: min(100%, 390px);
-  aspect-ratio: 9 / 16;
-  max-height: 70vh;
   margin: auto;
   overflow: hidden;
   place-items: center;
@@ -230,8 +234,45 @@
   position: absolute;
   max-width: none;
   user-select: none;
-  pointer-events: none;
+  pointer-events: auto;
   transform-origin: center;
+}
+
+.composition-canvas img.composition-media-image {
+  position: absolute;
+  z-index: 1;
+  max-width: none;
+  pointer-events: auto;
+  user-select: none;
+  transform-origin: center;
+}
+
+.composition-caption-overlay {
+  position: absolute;
+  left: 50%;
+  z-index: 20;
+  width: min(84%, 330px);
+  padding: 5px 9px;
+  color: #ffffff;
+  text-align: center;
+  text-shadow: 0 1px 2px #000000, 0 2px 8px rgb(0 0 0 / 75%);
+  background: rgb(0 0 0 / 60%);
+  border-radius: 5px;
+  font-size: clamp(13px, 3.2vw, 22px);
+  font-weight: 900;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
+.composition-caption-overlay.word {
+  width: auto;
+  min-width: 54px;
+  max-width: 84%;
+}
+
+.composition-canvas img.composition-media-image.selected {
+  outline: 1px dashed rgb(196 181 253 / 85%);
+  outline-offset: -2px;
 }
 
 .composition-safe-area {
@@ -383,6 +424,57 @@
   gap: 12px;
 }
 
+.caption-section {
+  gap: 10px;
+}
+
+.caption-section > label {
+  display: grid;
+  gap: 5px;
+  color: #a1a1aa;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.caption-section > label select,
+.caption-section > label textarea {
+  width: 100%;
+  padding: 8px;
+  color: #ffffff;
+  background: #24242f;
+  border: 1px solid #3b3b4d;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.caption-section > label select {
+  min-height: 36px;
+}
+
+.caption-section > label textarea {
+  min-height: 82px;
+  resize: vertical;
+}
+
+.caption-section > label select:focus,
+.caption-section > label textarea:focus {
+  border-color: #a78bfa;
+  outline: 2px solid rgb(167 139 250 / 28%);
+  outline-offset: 2px;
+}
+
+.inspector-warning {
+  margin: 0;
+  padding: 8px;
+  color: #fde68a;
+  background: rgb(120 53 15 / 35%);
+  border: 1px solid rgb(245 158 11 / 40%);
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .layout-preset-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -429,6 +521,101 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.image-upload-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 10px;
+  gap: 7px;
+  color: #ffffff;
+  background: #5b21b6;
+  border: 1px solid #8b5cf6;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.image-upload-button:hover {
+  background: #7c3aed;
+}
+
+.image-upload-button input {
+  display: none;
+}
+
+.media-item-list {
+  display: grid;
+  gap: 6px;
+}
+
+.media-item-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 6px;
+}
+
+.media-item-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 8px 9px;
+  gap: 8px;
+  color: #ddd6fe;
+  text-align: left;
+  background: #24242f;
+  border: 1px solid #3b3b4d;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.media-item-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-item-button small {
+  flex: 0 0 auto;
+  color: #a1a1aa;
+  font-size: 10px;
+}
+
+.media-item-button:hover,
+.media-item-button.active {
+  color: #ffffff;
+  background: #36205e;
+  border-color: #a78bfa;
+}
+
+.media-item-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  color: #fca5a5;
+  background: #24242f;
+  border: 1px solid #3b3b4d;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.media-item-remove:hover {
+  color: #ffffff;
+  background: #7f1d1d;
+  border-color: #f87171;
+}
+
+.media-item-remove:disabled {
+  cursor: wait;
+  opacity: 0.5;
 }
 
 .color-field,

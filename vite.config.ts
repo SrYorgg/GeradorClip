@@ -8,6 +8,7 @@ export default defineConfig({
       '/api': 'http://localhost:3333',
       '/videos': 'http://localhost:3333',
       '/gallery': 'http://localhost:3333',
+      '/project-assets': 'http://localhost:3333',
     },
   },
 });

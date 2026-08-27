@@ -30,12 +30,12 @@ export function ProjectsPage() {
       <section className="workspace">
         <div className="projects-heading">
           <div>
-            <p className="eyebrow">Projetos</p>
-            <h1>Rascunhos de edição</h1>
-            <p>Abra um corte, ajuste a timeline e aprove a composição antes da exportação.</p>
+            <p className="eyebrow">Etapa 2 de 6</p>
+            <h1>Editar layout</h1>
+            <p>Abra um corte, ajuste a proporção e o enquadramento, depois aprove a composição.</p>
           </div>
-          <Link className="secondary-action dark" to="/legendas">
-            Criar rascunhos
+          <Link className="secondary-action dark" to="/arquivos">
+            Armazenar vídeo
             <ArrowRight size={16} />
           </Link>
         </div>
@@ -47,7 +47,7 @@ export function ProjectsPage() {
           <div className="route-panel projects-empty">
             <FolderOpen size={34} />
             <h2>Nenhum projeto criado</h2>
-            <p>Crie rascunhos na página Legendas e abra qualquer corte no novo editor.</p>
+            <p>Armazene um vídeo em Arquivos e prepare os cortes para editar o layout.</p>
           </div>
         )}
 
@@ -57,9 +57,10 @@ export function ProjectsPage() {
               <article className="project-card" key={project.id}>
                 <div className="project-card-icon"><FolderOpen size={20} /></div>
                 <div className="project-card-copy">
-                  <span className="eyebrow">Projeto</span>
+                  <span className="eyebrow">{project.isLayoutDraft ? 'Rascunho de layout' : 'Projeto'}</span>
                   <h2>{project.title}</h2>
                   <p>{project.sourceName}</p>
+                  {project.isLayoutDraft && <p className="project-draft-hint">Finalize o layout e gere os cortes para continuar.</p>}
                   <small>{project.compositionCount} corte(s) · atualizado em {formatDate(project.updatedAt)}</small>
                 </div>
                 {project.firstCompositionId && (

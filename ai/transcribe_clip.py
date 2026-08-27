@@ -82,19 +82,57 @@ def transcribe_with_faster_whisper(audio_path):
         model_name = os.environ.get("FASTER_WHISPER_MODEL") or os.environ.get("WHISPERX_MODEL", "small")
         device = os.environ.get("WHISPERX_DEVICE", "cpu")
         compute_type = os.environ.get("WHISPERX_COMPUTE_TYPE", "int8")
-        vad_filter = os.environ.get("WHISPER_VAD_FILTER", "false").lower() == "true"
+        vad_filter = os.environ.get("WHISPER_VAD_FILTER", "true").lower() == "true"
+        beam_size = int(os.environ.get("WHISPER_BEAM_SIZE", "5"))
         model = WhisperModel(model_name, device=device, compute_type=compute_type)
-        segments, info = model.transcribe(str(audio_path), vad_filter=vad_filter)
+        transcribe_options = {
+            "vad_filter": vad_filter,
+            "word_timestamps": True,
+            "beam_size": max(1, beam_size),
+            "temperature": 0.0,
+            "condition_on_previous_text": False,
+            "compression_ratio_threshold": 2.4,
+            "log_prob_threshold": -1.0,
+            "no_speech_threshold": 0.6,
+        }
+        if vad_filter:
+            transcribe_options["vad_parameters"] = {"min_silence_duration_ms": 500}
+        segments, info = model.transcribe(str(audio_path), **transcribe_options)
 
-        normalized_segments = [
-            {"start": segment.start, "end": segment.end, "text": segment.text.strip()}
-            for segment in segments
-            if segment.text and segment.text.strip()
-        ]
+        normalized_segments = []
+        for segment in segments:
+            if not segment.text or not segment.text.strip():
+                continue
+
+            no_speech_probability = getattr(segment, "no_speech_prob", None)
+            average_log_probability = getattr(segment, "avg_logprob", None)
+            if (
+                no_speech_probability is not None
+                and average_log_probability is not None
+                and no_speech_probability >= 0.6
+                and average_log_probability <= -1.0
+            ):
+                continue
+
+            words = [
+                {
+                    "start": word.start,
+                    "end": word.end,
+                    "word": word.word.strip(),
+                    "probability": getattr(word, "probability", None),
+                }
+                for word in (segment.words or [])
+                if word.word and word.word.strip() and word.end > word.start
+            ]
+            normalized_segment = {"start": segment.start, "end": segment.end, "text": segment.text.strip()}
+            if words:
+                normalized_segment["words"] = words
+            normalized_segments.append(normalized_segment)
 
         return {
             "ok": True,
             "engine": "faster-whisper",
+            "transcriptionVersion": 3,
             "model": model_name,
             "language": getattr(info, "language", None),
             "text": " ".join(segment["text"] for segment in normalized_segments).strip(),

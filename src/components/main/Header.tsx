@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import {
+  Bot,
   BookOpen,
+  Check,
   FileVideo2,
   FolderOpen,
   Images,
@@ -16,33 +18,41 @@ import { NavLink } from 'react-router-dom';
 
 import './Header.css';
 
-const navItems = [
+const workflowItems = [
   {
-    label: 'Arquivos',
+    label: 'Armazenar vídeo',
     to: '/arquivos',
     icon: FileVideo2,
     end: true,
   },
   {
-    label: 'Editor',
-    to: '/editor',
+    label: 'Editar layout',
+    to: '/projetos',
     icon: Video,
   },
   {
-    label: 'Legendas',
+    label: 'Produzir legenda',
     to: '/legendas',
     icon: Subtitles,
   },
   {
-    label: 'Galeria',
+    label: 'Analisar cortes',
+    to: '/analise',
+    icon: Bot,
+  },
+  {
+    label: 'Selecionar cortes',
+    to: '/selecionar',
+    icon: Check,
+  },
+  {
+    label: 'Cortes armazenados',
     to: '/galeria',
     icon: Images,
   },
-  {
-    label: 'Projetos',
-    to: '/projetos',
-    icon: FolderOpen,
-  },
+];
+
+const utilityItems = [
   {
     label: 'Biblioteca',
     to: '/biblioteca',
@@ -91,12 +101,32 @@ export function Header({}) {
         </button>
 
         <nav className="nav-stack">
-          {navItems.map(({ label, to, icon: Icon, end }) => (
+          <span className="nav-section-label">Fluxo de criação</span>
+          {workflowItems.map(({ label, to, icon: Icon, end }) => (
             <NavLink
               className={({ isActive }) =>
                 `nav-item${isActive ? ' active' : ''}`
               }
               end={end}
+              key={label}
+              to={to}
+              title={label}
+              onClick={() => setIsPinned(false)}
+            >
+              <span className="nav-icon">
+                <Icon size={19} strokeWidth={1.8} />
+              </span>
+
+              <span className="sidebar-label">{label}</span>
+            </NavLink>
+          ))}
+          <div className="nav-divider" />
+          <span className="nav-section-label">Organização</span>
+          {utilityItems.map(({ label, to, icon: Icon }) => (
+            <NavLink
+              className={({ isActive }) =>
+                `nav-item${isActive ? ' active' : ''}`
+              }
               key={label}
               to={to}
               title={label}

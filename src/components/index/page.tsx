@@ -62,6 +62,8 @@ export function IndexPage() {
   const [subtitleCorrections, setSubtitleCorrections] = useState('');
   const [subtitleFont, setSubtitleFont] = useState(subtitleFonts[0].id);
   const [subtitlePosition, setSubtitlePosition] = useState<'bottom' | 'middle' | 'top'>('bottom');
+  const [subtitleDisplayMode, setSubtitleDisplayMode] = useState<'block' | 'word'>('block');
+  const [subtitleLanguage, setSubtitleLanguage] = useState<'original' | 'pt-BR'>('pt-BR');
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -132,17 +134,17 @@ export function IndexPage() {
     }
   }
 
-  async function openClipEditor(clip: GeneratedClip) {
+  async function openClipEditor(_clip: GeneratedClip) {
     if (!selectedVideo) {
       return;
     }
 
     try {
-      setOpeningClipId(clip.id);
-      setMessage('Abrindo o corte no Editor...');
+      setOpeningClipId(_clip.id);
+      setMessage('Abrindo o editor de layout...');
       const project = await createProject({
         videoId: selectedVideo.id,
-        clipIds: [clip.id],
+        layoutOnly: true,
       });
       const composition = project.compositions[0];
       if (!composition) {
@@ -178,11 +180,13 @@ export function IndexPage() {
         subtitleCorrections,
         subtitleFont,
         subtitlePosition,
+        subtitleDisplayMode,
+        subtitleLanguage,
         audioMode: 'Audio original',
       });
       setMessage('Pacote legendado exportado para a Galeria.');
-    } catch {
-      setMessage('Nao foi possivel exportar o pacote.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Nao foi possivel exportar o pacote.');
     } finally {
       setIsExporting(false);
     }
@@ -373,6 +377,32 @@ export function IndexPage() {
                   <option value="bottom">Inferior</option>
                   <option value="middle">Centro</option>
                   <option value="top">Superior</option>
+                </select>
+              </label>
+
+              <label className="setting-control subtitle-position-control">
+                <span>Estilo da legenda</span>
+                <select
+                  aria-label="Estilo da legenda"
+                  value={subtitleDisplayMode}
+                  onChange={(event) => setSubtitleDisplayMode(event.target.value as 'block' | 'word')}
+                  disabled={subtitleMode === 'none'}
+                >
+                  <option value="block">Em blocos</option>
+                  <option value="word">Palavra a palavra</option>
+                </select>
+              </label>
+
+              <label className="setting-control subtitle-position-control">
+                <span>Idioma da legenda</span>
+                <select
+                  aria-label="Idioma da legenda"
+                  value={subtitleLanguage}
+                  onChange={(event) => setSubtitleLanguage(event.target.value as 'original' | 'pt-BR')}
+                  disabled={subtitleMode === 'none'}
+                >
+                  <option value="pt-BR">Português (traduzida)</option>
+                  <option value="original">Idioma original</option>
                 </select>
               </label>
 

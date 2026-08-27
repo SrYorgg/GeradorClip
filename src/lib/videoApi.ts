@@ -1,4 +1,4 @@
-import type { Composition, Project, ProjectSummary } from '../features/editor/domain/editor.types';
+import type { Canvas, Composition, LayoutConfig, Project, ProjectAsset, ProjectSummary } from '../features/editor/domain/editor.types';
 
 export type UploadedVideo = {
   id: string;
@@ -34,6 +34,8 @@ export type GeneratedClip = {
   subtitleMode?: string;
   subtitleFont?: string;
   subtitlePosition?: string;
+  subtitleDisplayMode?: string;
+  subtitleLanguage?: string;
   subtitlePath?: string | null;
   subtitleError?: string | null;
   subtitleSource?: string | null;
@@ -48,10 +50,14 @@ export type GalleryPackage = {
   folderUrl: string;
   sourceVideoId: string;
   sourceName: string;
+  projectId?: string | null;
+  compositionIds?: string[];
+  canvas?: Canvas | null;
   createdAt: string;
   subtitleMode: string;
   subtitleFont: string;
   subtitlePosition: string;
+  subtitleDisplayMode?: string;
   subtitleCorrections?: number;
   audioMode: string;
   clips: GeneratedClip[];
@@ -86,9 +92,16 @@ export type AiToolResult = {
   message?: string;
 };
 
-function assertApiResponse(response: Response) {
+async function assertApiResponse(response: Response) {
   if (!response.ok) {
-    throw new Error(`API request failed with status ${response.status}`);
+    let message = `API request failed with status ${response.status}`;
+    try {
+      const data = (await response.json()) as { message?: string };
+      message = data.message || message;
+    } catch {
+      // Keep the HTTP status when the server does not return JSON.
+    }
+    throw new Error(message);
   }
 }
 
@@ -102,7 +115,7 @@ export async function uploadVideo(file: File, durationSeconds: number) {
     body: formData,
   });
 
-  assertApiResponse(response);
+  await assertApiResponse(response);
 
   const data = (await response.json()) as { video: UploadedVideo };
   return data.video;
@@ -110,7 +123,7 @@ export async function uploadVideo(file: File, durationSeconds: number) {
 
 export async function listUploadedVideos() {
   const response = await fetch('/api/videos');
-  assertApiResponse(response);
+  await assertApiResponse(response);
 
   const data = (await response.json()) as { videos: UploadedVideo[] };
   return data.videos;
@@ -118,7 +131,7 @@ export async function listUploadedVideos() {
 
 export async function listGeneratedClips() {
   const response = await fetch('/api/clips');
-  assertApiResponse(response);
+  await assertApiResponse(response);
 
   const data = (await response.json()) as { clips: GeneratedClip[] };
   return data.clips;
@@ -140,7 +153,7 @@ export async function generateVideoClips(
     body: JSON.stringify(options),
   });
 
-  assertApiResponse(response);
+  await assertApiResponse(response);
 
   const data = (await response.json()) as { video: UploadedVideo; clips: GeneratedClip[] };
   return data;
@@ -148,7 +161,7 @@ export async function generateVideoClips(
 
 export async function listGalleryPackages() {
   const response = await fetch('/api/gallery');
-  assertApiResponse(response);
+  await assertApiResponse(response);
 
   const data = (await response.json()) as { packages: GalleryPackage[] };
   return data.packages;
@@ -156,12 +169,16 @@ export async function listGalleryPackages() {
 
 export async function exportClipsToGallery(payload: {
   videoId: string;
+  projectId?: string;
   clipIds: string[];
+  compositionIds?: string[];
   subtitleMode: string;
   manualSubtitleText: string;
   subtitleCorrections: string;
   subtitleFont: string;
   subtitlePosition: string;
+  subtitleDisplayMode: string;
+  subtitleLanguage: string;
   audioMode: string;
 }) {
   const response = await fetch('/api/gallery/export', {
@@ -172,7 +189,7 @@ export async function exportClipsToGallery(payload: {
     body: JSON.stringify(payload),
   });
 
-  assertApiResponse(response);
+  await assertApiResponse(response);
 
   const data = (await response.json()) as { package: GalleryPackage };
   return data.package;
@@ -183,7 +200,7 @@ export async function deleteUploadedVideo(id: string) {
     method: 'DELETE',
   });
 
-  assertApiResponse(response);
+  await assertApiResponse(response);
 }
 
 export async function analyzeUploadedVideo(id: string) {
@@ -191,7 +208,7 @@ export async function analyzeUploadedVideo(id: string) {
     method: 'POST',
   });
 
-  assertApiResponse(response);
+  await assertApiResponse(response);
 
   const data = (await response.json()) as { video: UploadedVideo };
   return data.video;
@@ -199,7 +216,7 @@ export async function analyzeUploadedVideo(id: string) {
 
 export async function getAiStatus() {
   const response = await fetch('/api/ai/status');
-  assertApiResponse(response);
+  await assertApiResponse(response);
 
   const data = (await response.json()) as {
     status: Record<string, boolean>;
@@ -209,7 +226,7 @@ export async function getAiStatus() {
 
 export async function listProjects() {
   const response = await fetch('/api/projects');
-  assertApiResponse(response);
+  await assertApiResponse(response);
 
   const data = (await response.json()) as { projects: ProjectSummary[] };
   return data.projects;
@@ -219,6 +236,8 @@ export async function createProject(payload: {
   videoId: string;
   clipIds?: string[];
   title?: string;
+  layout?: LayoutConfig;
+  layoutOnly?: boolean;
 }) {
   const response = await fetch('/api/projects', {
     method: 'POST',
@@ -228,7 +247,59 @@ export async function createProject(payload: {
     body: JSON.stringify(payload),
   });
 
-  assertApiResponse(response);
+  await assertApiResponse(response);
+
+  const data = (await response.json()) as { project: Project };
+  return data.project;
+}
+
+export async function generateProjectClips(projectId: string) {
+  const response = await fetch(`/api/projects/${projectId}/generate-clips`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      mode: 'count',
+      targetDurationSeconds: 60,
+      targetClipCount: 5,
+    }),
+  });
+
+  await assertApiResponse(response);
+
+  const data = (await response.json()) as { project: Project };
+  return data.project;
+}
+
+export async function uploadProjectImage(
+  projectId: string,
+  file: File,
+  options: { addToLayout?: boolean } = {},
+) {
+  const formData = new FormData();
+  formData.append('image', file);
+  if (options.addToLayout) {
+    formData.append('addToLayout', 'true');
+  }
+
+  const response = await fetch(`/api/projects/${projectId}/assets`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  await assertApiResponse(response);
+
+  const data = (await response.json()) as { asset: ProjectAsset; project: Project };
+  return data;
+}
+
+export async function deleteProjectImage(projectId: string, assetId: string) {
+  const response = await fetch(`/api/projects/${projectId}/assets/${assetId}`, {
+    method: 'DELETE',
+  });
+
+  await assertApiResponse(response);
 
   const data = (await response.json()) as { project: Project };
   return data.project;
@@ -236,7 +307,18 @@ export async function createProject(payload: {
 
 export async function getProject(id: string) {
   const response = await fetch(`/api/projects/${id}`);
-  assertApiResponse(response);
+  await assertApiResponse(response);
+
+  const data = (await response.json()) as { project: Project };
+  return data.project;
+}
+
+export async function reviewProject(id: string) {
+  const response = await fetch(`/api/projects/${id}/analyze`, {
+    method: 'POST',
+  });
+
+  await assertApiResponse(response);
 
   const data = (await response.json()) as { project: Project };
   return data.project;
@@ -254,7 +336,7 @@ export async function saveComposition(composition: Composition) {
     }),
   });
 
-  assertApiResponse(response);
+  await assertApiResponse(response);
 
   const data = (await response.json()) as { composition: Composition; project: Project };
   return data;
@@ -269,7 +351,7 @@ export async function approveComposition(composition: Composition) {
     body: JSON.stringify({ expectedRevision: composition.revision }),
   });
 
-  assertApiResponse(response);
+  await assertApiResponse(response);
 
   const data = (await response.json()) as { composition: Composition; project: Project };
   return data;
@@ -280,7 +362,7 @@ export async function duplicateComposition(id: string) {
     method: 'POST',
   });
 
-  assertApiResponse(response);
+  await assertApiResponse(response);
 
   const data = (await response.json()) as { composition: Composition; project: Project };
   return data;
