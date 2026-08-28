@@ -1805,6 +1805,53 @@ app.post('/api/projects/:id/analyze', (request, response) => {
   response.json({ project: reviewedProject });
 });
 
+app.post('/api/projects/:id/approve-ready', (request, response) => {
+  const project = readProject(request.params.id);
+
+  if (!project) {
+    response.status(404).json({ message: 'Projeto nao encontrado.' });
+    return;
+  }
+
+  const compositions = project.compositions || [];
+  if (compositions.length === 0) {
+    response.status(400).json({ message: 'O projeto nao possui cortes para aprovar.' });
+    return;
+  }
+
+  const blockedComposition = compositions.find((composition) => composition.review?.status !== 'ready');
+  if (blockedComposition) {
+    response.status(409).json({
+      message: 'Analise e ajuste todos os cortes antes de aprovar em lote.',
+    });
+    return;
+  }
+
+  const approvedAt = new Date().toISOString();
+  let approvedCount = 0;
+  const approvedCompositions = compositions.map((composition) => {
+    if (composition.status === 'approved') {
+      return composition;
+    }
+
+    approvedCount += 1;
+    return {
+      ...composition,
+      status: 'approved',
+      revision: composition.revision + 1,
+      updatedAt: approvedAt,
+    };
+  });
+  const approvedProject = {
+    ...project,
+    compositions: approvedCompositions,
+    updatedAt: approvedAt,
+  };
+
+  writeProject(approvedProject);
+  response.json({ project: approvedProject, approvedCount });
+});
+
 app.put('/api/compositions/:id', (request, response) => {
   const { project, composition: currentComposition } = findComposition(request.params.id);
   const incomingComposition = normalizeComposition(request.body?.composition || request.body);

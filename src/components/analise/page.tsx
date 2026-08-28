@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, ArrowRight, Bot, CheckCircle2, RefreshCw } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { Project, ProjectSummary } from '../../features/editor/domain/editor.types';
-import { getProject, listProjects, reviewProject } from '../../lib/videoApi';
+import { approveReadyCompositions, getProject, listProjects, reviewProject } from '../../lib/videoApi';
 import { Header } from '../main/Header';
 import '../workflow/workflow.css';
 
@@ -18,7 +18,7 @@ const workflowSteps = [
 function getReviewLabel(status: 'pending' | 'ready' | 'needs-adjustment') {
   return {
     pending: 'Ainda não analisado',
-    ready: 'Pronto para seleção',
+    ready: 'Revisão pronta',
     'needs-adjustment': 'Precisa de ajuste',
   }[status];
 }
@@ -31,8 +31,22 @@ export function AnalysisPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isProjectLoading, setIsProjectLoading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const allReviewed = Boolean(
+    project &&
+    project.compositions.length > 0 &&
+    project.compositions.every((composition) => composition.review?.status === 'ready'),
+  );
+  const allApproved = Boolean(
+    project &&
+    project.compositions.length > 0 &&
+    project.compositions.every((composition) => composition.status === 'approved'),
+  );
+  const readyToApproveCount = project?.compositions.filter(
+    (composition) => composition.review?.status === 'ready' && composition.status !== 'approved',
+  ).length || 0;
 
   useEffect(() => {
     listProjects()
@@ -101,11 +115,34 @@ export function AnalysisPage() {
       setMessage('');
       const analyzedProject = await reviewProject(project.id);
       setProject(analyzedProject);
-      setMessage('Análise concluída. Revise os cortes sinalizados antes de selecionar.');
+      setMessage('Análise concluída. Ajuste os cortes sinalizados e aprove os cortes prontos para liberar a seleção.');
     } catch {
       setError('Nao foi possivel analisar os cortes.');
     } finally {
       setIsAnalyzing(false);
+    }
+  }
+
+  async function approveReadyCuts() {
+    if (!project || !allReviewed || readyToApproveCount === 0) {
+      return;
+    }
+
+    try {
+      setIsApproving(true);
+      setError('');
+      setMessage('');
+      const result = await approveReadyCompositions(project.id);
+      setProject(result.project);
+      setMessage(
+        result.approvedCount > 0
+          ? `${result.approvedCount} cortes aprovados. Agora escolha quais armazenar.`
+          : 'Todos os cortes prontos já estavam aprovados. Agora escolha quais armazenar.',
+      );
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Nao foi possivel aprovar os cortes prontos.');
+    } finally {
+      setIsApproving(false);
     }
   }
 
@@ -161,7 +198,7 @@ export function AnalysisPage() {
                 <h2>{project.compositions.length} cortes para verificar</h2>
                 <p>A análise é baseada nos dados salvos do Editor e pode ser repetida após qualquer ajuste.</p>
               </div>
-              <button className="workflow-primary" type="button" disabled={isAnalyzing} onClick={() => void analyzeCuts()}>
+              <button className="workflow-primary" type="button" disabled={isAnalyzing || isApproving} onClick={() => void analyzeCuts()}>
                 <RefreshCw size={16} />
                 {isAnalyzing ? 'Analisando...' : 'Analisar cortes'}
               </button>
@@ -184,6 +221,18 @@ export function AnalysisPage() {
                           {hasIssues ? <AlertTriangle size={14} /> : review.status === 'ready' ? <CheckCircle2 size={14} /> : <Bot size={14} />}
                           {getReviewLabel(review.status)}
                         </span>
+                        {review.status === 'ready' && composition.status !== 'approved' && (
+                          <span className="workflow-badge awaiting-approval">
+                            <Bot size={14} />
+                            Aguardando aprovação
+                          </span>
+                        )}
+                        {composition.status === 'approved' && (
+                          <span className="workflow-badge approved">
+                            <CheckCircle2 size={14} />
+                            Aprovado para exportação
+                          </span>
+                        )}
                       </div>
                       {review.issues.length > 0 && (
                         <ul className="workflow-issues">
@@ -200,16 +249,27 @@ export function AnalysisPage() {
               })}
             </div>
 
-            {project.compositions.length > 0 && project.compositions.every((composition) => composition.review?.status === 'ready') && (
+            {allReviewed && !allApproved && (
+              <div className="workflow-actions">
+                <button className="workflow-primary" type="button" disabled={isApproving || isAnalyzing} onClick={() => void approveReadyCuts()}>
+                  <CheckCircle2 size={16} />
+                  {isApproving ? 'Aprovando...' : `Aprovar ${readyToApproveCount} cortes prontos`}
+                </button>
+              </div>
+            )}
+            {allReviewed && allApproved && (
               <div className="workflow-actions">
                 <Link className="workflow-primary" to={`/selecionar?projectId=${project.id}`}>
-                Ir para seleção
-                <ArrowRight size={16} />
+                  Ir para seleção
+                  <ArrowRight size={16} />
                 </Link>
               </div>
             )}
-            {project.compositions.some((composition) => composition.review?.status !== 'ready') && (
-              <p className="workflow-field-help">A selecao sera liberada depois que todos os cortes forem analisados e estiverem prontos.</p>
+            {!allReviewed && (
+              <p className="workflow-field-help">Execute a análise e ajuste os cortes sinalizados. A aprovação em lote aparece quando todos estiverem prontos.</p>
+            )}
+            {allReviewed && !allApproved && (
+              <p className="workflow-field-help">A análise terminou. Aprove os cortes prontos para liberar a seleção.</p>
             )}
           </section>
         )}

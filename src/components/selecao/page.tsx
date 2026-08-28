@@ -175,7 +175,7 @@ export function SelectionPage() {
           <div>
             <p className="eyebrow">Etapa 5 de 6</p>
             <h1>Selecionar cortes</h1>
-            <p>Escolha quais cortes revisados serão renderizados e armazenados na galeria.</p>
+            <p>Escolha quais cortes aprovados serão renderizados e armazenados na galeria.</p>
           </div>
           {project && (
             <label className="workflow-project-select">
@@ -225,12 +225,19 @@ export function SelectionPage() {
             <div className="workflow-selection-list">
               {project.compositions.map((composition) => {
                 const reviewStatus = composition.review?.status || 'pending';
+                const statusMessage = reviewStatus === 'needs-adjustment'
+                  ? 'Precisa de ajuste antes da seleção.'
+                  : reviewStatus === 'pending'
+                    ? 'Ainda não analisado.'
+                    : composition.status === 'approved'
+                      ? 'Aprovado para armazenamento.'
+                      : 'Revisado; aguardando aprovação.';
                 return (
                   <label className="workflow-selection-card" key={composition.id}>
                     <input type="checkbox" checked={selectedIds.has(composition.id)} onChange={() => toggleSelection(composition.id)} />
                     <span>
                       <h3>{composition.title}</h3>
-                      <p>{reviewStatus === 'needs-adjustment' ? 'Marcado com pendência de revisão.' : reviewStatus === 'ready' ? 'Revisão concluída.' : 'Ainda não analisado.'}</p>
+                      <p>{statusMessage}</p>
                     </span>
                     <strong>{Math.round(composition.durationMs / 1000)}s</strong>
                   </label>
@@ -249,7 +256,13 @@ export function SelectionPage() {
               </button>
             </div>
             {!canStore && selectedIds.size > 0 && (
-              <p className="workflow-field-help">Somente cortes analisados e aprovados no Editor podem ser armazenados.</p>
+              <p className="workflow-field-help">
+                Somente cortes aprovados após a análise podem ser armazenados.{' '}
+                <Link className="workflow-inline-link" to={`/analise?projectId=${project.id}`}>Voltar à análise</Link>
+              </p>
+            )}
+            {selectedIds.size === 0 && (
+              <p className="workflow-field-help">Selecione pelo menos um corte aprovado para armazenar.</p>
             )}
           </section>
         )}

@@ -3,6 +3,7 @@ dist
 *.tsbuildinfo
 .venv
 .cache
+.claude/
 
 .env
 .env.*

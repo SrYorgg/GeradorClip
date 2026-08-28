@@ -324,6 +324,17 @@ export async function reviewProject(id: string) {
   return data.project;
 }
 
+export async function approveReadyCompositions(id: string) {
+  const response = await fetch(`/api/projects/${id}/approve-ready`, {
+    method: 'POST',
+  });
+
+  await assertApiResponse(response);
+
+  const data = (await response.json()) as { project: Project; approvedCount: number };
+  return data;
+}
+
 export async function saveComposition(composition: Composition) {
   const response = await fetch(`/api/compositions/${composition.id}`, {
     method: 'PUT',

@@ -147,11 +147,12 @@ export function Header({}) {
 
         <div className="profile">
           <div className="profile-avatar" aria-hidden="true">
+            GC
           </div>
 
           <div className="profile-copy">
-            <strong></strong>
-            <span></span>
+            <strong>GeradorClip</strong>
+            <span>Workspace local</span>
           </div>
         </div>
 

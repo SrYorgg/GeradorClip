@@ -564,3 +564,124 @@
 .files-empty svg {
   color: #a78bfa;
 }
+
+/* Files refresh */
+.files-heading {
+  align-items: flex-end;
+  gap: 28px;
+  margin-bottom: 30px;
+}
+
+.files-heading span {
+  color: var(--amber);
+}
+
+.files-grid {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 18px;
+}
+
+.video-card {
+  max-width: none;
+  background: linear-gradient(145deg, rgb(21 28 38 / 98%), rgb(15 20 28 / 98%));
+  border-color: #2b3745;
+  border-radius: 17px;
+  box-shadow: 0 24px 70px rgb(0 0 0 / 20%);
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.video-card:hover {
+  border-color: #4a5d72;
+  transform: translateY(-3px);
+  box-shadow: 0 28px 70px rgb(0 0 0 / 28%);
+}
+
+.video-thumbnail video {
+  height: 138px;
+}
+
+.thumbnail-overlay {
+  color: #eff4fb;
+  background: rgb(11 14 20 / 78%);
+  border-color: rgb(245 201 107 / 38%);
+  border-radius: 9px;
+}
+
+.video-thumbnail:hover .thumbnail-overlay {
+  color: #15181f;
+  background: var(--amber);
+}
+
+.video-card-copy {
+  padding: 14px 14px 10px;
+}
+
+.video-card-copy p {
+  color: #94a2b2;
+}
+
+.video-card-copy > svg {
+  color: var(--amber);
+}
+
+.video-ai-actions {
+  padding: 0 14px 14px;
+}
+
+.prepare-layout-button,
+.ai-analyze-button,
+.layout-image-upload {
+  border-radius: 10px;
+}
+
+.prepare-layout-button {
+  color: #14161d;
+  background: linear-gradient(135deg, #a395ff, #73ddbd);
+}
+
+.ai-analyze-button {
+  color: #d9d4ff;
+  background: #242343;
+  border-color: #4d4b7b;
+}
+
+.ai-analyze-button:hover:not(:disabled) {
+  color: #ffffff;
+  background: #5a4fc0;
+}
+
+.video-modal,
+.layout-setup-modal {
+  background: linear-gradient(145deg, #18212c, #111720);
+  border-color: #405064;
+  border-radius: 18px;
+  box-shadow: 0 30px 90px rgb(0 0 0 / 48%);
+}
+
+.layout-setup-option,
+.layout-image-item {
+  background: #151e29;
+  border-color: #334254;
+  border-radius: 12px;
+}
+
+.layout-setup-option:hover,
+.layout-setup-option.active {
+  background: #29264d;
+  border-color: var(--blue);
+}
+
+.layout-image-setup {
+  background: #101721;
+  border-color: #2d3b4c;
+  border-radius: 14px;
+}
+
+@media (max-width: 620px) {
+  .files-grid {
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  }
+}

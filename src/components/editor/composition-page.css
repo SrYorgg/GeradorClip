@@ -871,3 +871,105 @@
     min-height: 560px;
   }
 }
+
+/* Composition editor refresh */
+.composition-editor-shell {
+  padding: 24px 28px 40px;
+  background:
+    radial-gradient(circle at 78% -10%, rgb(152 135 255 / 15%), transparent 34rem),
+    #0b0e14;
+}
+
+.composition-toolbar,
+.composition-panel,
+.composition-preview-panel,
+.composition-timeline-panel {
+  background: linear-gradient(145deg, rgb(21 28 38 / 98%), rgb(15 20 28 / 98%));
+  border-color: #2b3745;
+  border-radius: 18px;
+  box-shadow: 0 24px 70px rgb(0 0 0 / 20%);
+}
+
+.composition-toolbar {
+  margin-bottom: 22px;
+  padding: 14px 16px;
+}
+
+.composition-back,
+.composition-actions button,
+.composition-preview-controls button,
+.inspector-fields input,
+.inspector-fields select,
+.caption-section > label select,
+.caption-section > label textarea {
+  border-radius: 10px;
+}
+
+.composition-back,
+.composition-actions button,
+.composition-preview-controls button {
+  color: #dbe4f2;
+  background: #17202b;
+  border-color: #344355;
+}
+
+.composition-back:hover,
+.composition-actions button:hover:not(:disabled),
+.composition-preview-controls button:hover {
+  color: #ffffff;
+  background: #222e3d;
+  border-color: #53657a;
+  transform: translateY(-1px);
+}
+
+.composition-save,
+.composition-next {
+  color: #14161d !important;
+  background: linear-gradient(135deg, #a395ff, #73ddbd) !important;
+  border-color: transparent !important;
+}
+
+.composition-approve {
+  color: #122019 !important;
+  background: var(--green) !important;
+  border-color: transparent !important;
+}
+
+.composition-workspace {
+  gap: 22px;
+}
+
+.composition-panel,
+.composition-preview-panel,
+.composition-timeline-panel {
+  padding: 20px;
+}
+
+.proposal-card,
+.proposal-help,
+.inspector-section,
+.inspector-ai-note {
+  border-radius: 12px;
+}
+
+.proposal-card {
+  background: #151e29;
+  border-color: #334254;
+}
+
+.proposal-card:hover,
+.proposal-card.active {
+  background: #29264d;
+  border-color: var(--blue);
+}
+
+.composition-canvas {
+  border-color: #425267;
+  border-radius: 18px;
+  box-shadow: 0 24px 50px rgb(0 0 0 / 28%);
+}
+
+.composition-eyebrow,
+.inspector-label {
+  color: var(--amber);
+}

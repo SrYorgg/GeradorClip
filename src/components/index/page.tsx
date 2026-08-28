@@ -255,8 +255,9 @@ export function IndexPage() {
           <section className="generator-panel">
             <div className="panel-heading">
               <div>
-                <p className="eyebrow">Legendas</p>
-                <h1>Adicione legendas depois de editar o layout</h1>
+                <p className="eyebrow">Centro de produção</p>
+                <h1>Crie cortes prontos para revisar</h1>
+                <p className="panel-heading-description">Escolha um vídeo, defina o ritmo dos cortes e prepare as legendas em um só lugar.</p>
               </div>
             </div>
 
