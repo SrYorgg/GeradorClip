@@ -27,15 +27,27 @@ type MetadataDraft = {
 };
 
 function scoreTone(score: number) {
-  if (score >= 75) {
+  if (score > 70) {
     return 'strong';
   }
 
-  if (score >= 55) {
+  if (score === 70) {
     return 'attention';
   }
 
   return 'weak';
+}
+
+function scoreAccent(tone: string) {
+  if (tone === 'strong') {
+    return '#70d3a7';
+  }
+
+  if (tone === 'attention') {
+    return '#8068d9';
+  }
+
+  return '#ff817c';
 }
 
 function formatDate(value: string) {
@@ -280,13 +292,13 @@ export function EditorialPage() {
           <div className="editorial-hero-mark" aria-hidden="true">
             <Sparkles size={25} />
           </div>
-          <div>
+          <div className="editorial-hero-copy">
             <p className="eyebrow">Ciclo 3 · fundação editorial</p>
             <h1>Inteligência editorial</h1>
             <p>Transforme sinais do vídeo em decisões explicáveis antes de aprovar e exportar.</p>
           </div>
           <div className="editorial-hero-stat">
-            <strong>{averageScore === null ? '—' : averageScore}</strong>
+            <strong className={averageScore === null ? undefined : averageScore < 70 ? 'score-low' : averageScore > 70 ? 'score-high' : 'score-neutral'}>{averageScore === null ? '—' : averageScore}</strong>
             <span>score médio</span>
           </div>
         </section>
@@ -375,21 +387,35 @@ export function EditorialPage() {
             </section>
 
             {project && project.compositions.length > 0 ? (
-              <div className="editorial-composition-list">
+              <section className="editorial-compositions-section" aria-labelledby="editorial-compositions-title">
+                <div className="editorial-section-heading">
+                  <div>
+                    <span className="eyebrow">Leitura por corte</span>
+                    <h2 id="editorial-compositions-title">Composições avaliadas</h2>
+                  </div>
+                  <div className="editorial-section-summary">
+                    <strong>{scoredCount}</strong>
+                    <span>de {project.compositions.length} com score</span>
+                  </div>
+                </div>
+
+                <div className="editorial-composition-list">
                 {project.compositions.map((composition, index) => {
                   const score: EditorialScore | undefined = composition.editorial?.score;
                   const draft = drafts[composition.id] || getDraft(composition);
                   const tone = score ? scoreTone(score.total) : 'empty';
+                  const accent = scoreAccent(tone);
+                  const isLowScore = score ? score.total < 70 : false;
 
                   return (
-                    <article className={`workflow-card editorial-composition-card ${tone}`} key={composition.id}>
+                    <article className={`workflow-card editorial-composition-card ${tone} ${isLowScore ? 'low-score' : ''}`} key={composition.id}>
                       <header className="editorial-composition-header">
                         <div>
                           <span className="eyebrow">Corte {String(index + 1).padStart(2, '0')} · {composition.editorial?.status === 'reviewed' ? 'revisado' : 'rascunho'}</span>
                           <h2>{composition.title}</h2>
                           <p>Revisão {composition.revision} · atualizado em {formatDate(composition.updatedAt)}</p>
                         </div>
-                        <div className="editorial-score-ring" style={{ background: score ? `conic-gradient(#f5b03d ${score.total}%, #2c3039 0)` : undefined }}>
+                        <div className="editorial-score-ring" aria-label={score ? `Score editorial ${score.total} de 100` : 'Score ainda não calculado'} style={{ background: score ? `conic-gradient(${accent} ${score.total}%, #2c3039 0)` : undefined }}>
                           <div>
                             <strong>{score ? score.total : '—'}</strong>
                             <span>/ 100</span>
@@ -400,7 +426,7 @@ export function EditorialPage() {
                       {score ? (
                         <div className="editorial-dimension-grid">
                           {score.dimensions.map((dimension) => (
-                            <div className="editorial-dimension" key={dimension.id}>
+                            <div className={`editorial-dimension ${dimension.score < 70 ? 'score-low' : dimension.score > 70 ? 'score-high' : 'score-neutral'}`} key={dimension.id}>
                               <div className="editorial-dimension-heading">
                                 <span>{dimension.label}</span>
                                 <strong>{dimension.score}</strong>
@@ -419,13 +445,13 @@ export function EditorialPage() {
 
                       {score && (
                         <div className="editorial-reasons">
-                          <span>Por que este score?</span>
+                          <span className="editorial-reasons-heading">Por que este score?</span>
                           <ul>{score.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
                         </div>
                       )}
 
                       <div className="editorial-metadata">
-                        <div>
+                        <div className="editorial-metadata-heading">
                           <span className="eyebrow">Metadados de publicação</span>
                           <h3>Edite antes de aprovar</h3>
                         </div>
@@ -448,7 +474,8 @@ export function EditorialPage() {
                     </article>
                   );
                 })}
-              </div>
+                </div>
+              </section>
             ) : (
               <div className="route-panel editorial-empty-project">Crie um projeto com cortes para iniciar a análise editorial.</div>
             )}

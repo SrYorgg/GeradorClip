@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Folder, LoaderCircle, MonitorPlay, RefreshCw, Subtitles, Volume2, XCircle } from 'lucide-react';
+import { Folder, LoaderCircle, MonitorPlay, PackageOpen, RefreshCw, Subtitles, Volume2, XCircle } from 'lucide-react';
 import { subtitleFonts } from '../../lib/subtitleFonts';
 import {
   cancelExportJob,
@@ -20,6 +20,10 @@ function formatDate(value: string) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(value));
+}
+
+function formatPackageTitle(value: string) {
+  return value.replace(/^Pacote - /, '');
 }
 
 function formatSubtitleMode(value: string) {
@@ -266,19 +270,45 @@ export function GalleryPage() {
         )}
 
         {!isLoading && !error && packages.length > 0 && (
-          <div className="gallery-grid">
-            {packages.map((galleryPackage) => (
-              <article className="gallery-package" key={galleryPackage.id}>
+          <section className="gallery-library" aria-labelledby="gallery-library-title">
+            <div className="gallery-section-heading">
+              <div>
+                <span className="eyebrow">Biblioteca de exportações</span>
+                <h2 id="gallery-library-title">Pacotes prontos</h2>
+              </div>
+              <p>Todos os cortes ficam agrupados por exportação para você revisar e publicar com mais rapidez.</p>
+            </div>
+
+            <div className="gallery-grid">
+              {packages.map((galleryPackage) => (
+                <article className="gallery-package" key={galleryPackage.id}>
                 <div className="gallery-package-header">
-                  <div>
-                    <p className="eyebrow">Pasta /{galleryPackage.folderName}</p>
-                    <h2>{galleryPackage.title}</h2>
-                    <span>{formatDate(galleryPackage.createdAt)}</span>
+                  <div className="gallery-package-identity">
+                    <div className="gallery-package-kicker">
+                      <PackageOpen size={16} />
+                      <span>Pacote exportado</span>
+                    </div>
+                    <h2>{formatPackageTitle(galleryPackage.title)}</h2>
+                    <time className="gallery-package-date" dateTime={galleryPackage.createdAt}>
+                      Exportado em {formatDate(galleryPackage.createdAt)}
+                    </time>
                   </div>
-                  <strong>{galleryPackage.clips.length} clipes</strong>
+                  <div className="gallery-package-count" aria-label={`${galleryPackage.clips.length} clipes exportados`}>
+                    <strong>{galleryPackage.clips.length}</strong>
+                    <span>clipes</span>
+                  </div>
                 </div>
 
-                <div className="gallery-tools">
+                <div className="gallery-package-details">
+                  <div className="gallery-package-details-heading">
+                    <span className="eyebrow">Configuração usada</span>
+                    <span className="gallery-package-path">
+                      <Folder size={14} />
+                      /{galleryPackage.folderName}
+                    </span>
+                  </div>
+
+                  <div className="gallery-tools">
                   {galleryPackage.canvas && (
                     <span>
                       <MonitorPlay size={14} />
@@ -299,23 +329,48 @@ export function GalleryPage() {
                     <Volume2 size={14} />
                     {galleryPackage.audioMode}
                   </span>
+                  </div>
+                </div>
+
+                <div className="gallery-clip-heading">
+                  <div>
+                    <span className="eyebrow">Arquivos finais</span>
+                    <h3>Cortes exportados</h3>
+                  </div>
+                  <span className="gallery-clip-count">{galleryPackage.clips.length} arquivos MP4</span>
                 </div>
 
                 <div className="gallery-clip-list">
                   {galleryPackage.clips.map((clip) => (
                     <article className="gallery-clip" key={clip.id}>
-                      {clip.url && <video src={clip.url} controls preload="metadata" />}
-                      <div>
-                        <h3>{clip.title}</h3>
-                        <p>{clip.range}</p>
-                        <span>{clip.shouldCaption ? 'Com legenda' : 'Sem legenda'}</span>
+                      <div className="gallery-clip-media">
+                        {clip.url ? (
+                          <video src={clip.url} controls preload="metadata" />
+                        ) : (
+                          <div className="gallery-clip-no-preview">
+                            <MonitorPlay size={20} />
+                            <span>Preview indisponível</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="gallery-clip-copy">
+                        <div className="gallery-clip-title-row">
+                          <h3>{clip.title}</h3>
+                          <span className="gallery-clip-status">{clip.status}</span>
+                        </div>
+                        <p className="gallery-clip-range">{clip.range}</p>
+                        <span className="gallery-clip-caption">
+                          <Subtitles size={13} />
+                          {clip.shouldCaption ? 'Com legenda' : 'Sem legenda'}
+                        </span>
                       </div>
                     </article>
                   ))}
                 </div>
               </article>
-            ))}
-          </div>
+              ))}
+            </div>
+          </section>
         )}
       </section>
     </main>

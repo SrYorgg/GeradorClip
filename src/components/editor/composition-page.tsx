@@ -221,6 +221,8 @@ export function CompositionEditorPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isGeneratingClips, setIsGeneratingClips] = useState(false);
+  const [selectedProposalIds, setSelectedProposalIds] = useState<Set<string>>(new Set());
+  const [isApprovingSelected, setIsApprovingSelected] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -290,6 +292,11 @@ export function CompositionEditorPage() {
   }, [clipId, navigate, projectId]);
 
   const composition = state.composition;
+  const selectableProposalIds = project?.compositions
+    .filter((proposal) => proposal.status !== 'approved')
+    .map((proposal) => proposal.id) || [];
+  const selectedProposalCount = selectableProposalIds.filter((proposalId) => selectedProposalIds.has(proposalId)).length;
+  const allProposalsSelected = selectableProposalIds.length > 0 && selectedProposalCount === selectableProposalIds.length;
   const captionSettings = composition
     ? getCaptionSettings(composition.captionSettings)
     : DEFAULT_CAPTION_SETTINGS;
@@ -444,6 +451,22 @@ export function CompositionEditorPage() {
     dispatch({ type: 'load', composition: nextComposition });
     navigate(`/projetos/${nextComposition.projectId}/cortes/${nextComposition.id}/editor`);
     setMessage('');
+  }
+
+  function toggleProposalSelection(proposalId: string) {
+    setSelectedProposalIds((currentIds) => {
+      const nextIds = new Set(currentIds);
+      if (nextIds.has(proposalId)) {
+        nextIds.delete(proposalId);
+      } else {
+        nextIds.add(proposalId);
+      }
+      return nextIds;
+    });
+  }
+
+  function toggleAllProposals() {
+    setSelectedProposalIds(allProposalsSelected ? new Set() : new Set(selectableProposalIds));
   }
 
   function handleTimeUpdate() {
@@ -701,10 +724,80 @@ export function CompositionEditorPage() {
       setError('');
       const result = await approveComposition(savedComposition);
       setProject(result.project);
+      setSelectedProposalIds((currentIds) => {
+        const nextIds = new Set(currentIds);
+        nextIds.delete(result.composition.id);
+        return nextIds;
+      });
       dispatch({ type: 'mark-saved', composition: result.composition });
       setMessage('Corte aprovado para exportacao.');
     } catch {
       setError('Nao foi possivel aprovar o corte.');
+    }
+  }
+
+  async function approveSelectedProposals() {
+    if (!project || !composition || selectedProposalCount === 0 || isApprovingSelected) {
+      return;
+    }
+
+    const selectedIds = new Set(
+      selectableProposalIds.filter((proposalId) => selectedProposalIds.has(proposalId)),
+    );
+    const savedComposition = state.isDirty ? await persistComposition() : composition;
+    if (!savedComposition) {
+      return;
+    }
+
+    let latestProject = project;
+    if (state.isDirty) {
+      latestProject = {
+        ...project,
+        compositions: project.compositions.map((currentComposition) =>
+          currentComposition.id === savedComposition.id ? savedComposition : currentComposition,
+        ),
+        updatedAt: savedComposition.updatedAt,
+      };
+    }
+
+    const compositionsToApprove = latestProject.compositions.filter(
+      (currentComposition) => selectedIds.has(currentComposition.id) && currentComposition.status !== 'approved',
+    );
+
+    if (compositionsToApprove.length === 0) {
+      setSelectedProposalIds(new Set());
+      return;
+    }
+
+    try {
+      setIsApprovingSelected(true);
+      setError('');
+      setMessage('');
+
+      for (const currentComposition of compositionsToApprove) {
+        const result = await approveComposition(currentComposition);
+        latestProject = result.project;
+      }
+
+      setProject(latestProject);
+      setSelectedProposalIds(new Set());
+      const updatedCurrentComposition = latestProject.compositions.find(
+        (currentComposition) => currentComposition.id === composition.id,
+      );
+      if (updatedCurrentComposition && selectedIds.has(updatedCurrentComposition.id)) {
+        dispatch({ type: 'mark-saved', composition: updatedCurrentComposition });
+      }
+      setMessage(`${compositionsToApprove.length} cortes aprovados para exportacao.`);
+    } catch (error) {
+      setProject(latestProject);
+      setSelectedProposalIds(new Set(
+        latestProject.compositions
+          .filter((currentComposition) => selectedIds.has(currentComposition.id) && currentComposition.status !== 'approved')
+          .map((currentComposition) => currentComposition.id),
+      ));
+      setError(error instanceof Error ? error.message : 'Nao foi possivel aprovar os cortes selecionados.');
+    } finally {
+      setIsApprovingSelected(false);
     }
   }
 
@@ -721,6 +814,7 @@ export function CompositionEditorPage() {
       const generatedProject = await generateProjectClips(currentProjectId);
       const firstComposition = generatedProject.compositions[0];
       setProject(generatedProject);
+      setSelectedProposalIds(new Set());
 
       if (firstComposition) {
         dispatch({ type: 'load', composition: firstComposition });
@@ -805,17 +899,56 @@ export function CompositionEditorPage() {
             </div>
             <span>{project.compositions.length}</span>
           </div>
+          {!project.isLayoutDraft && (
+            <div className="proposal-selection-toolbar" aria-label="Selecao de cortes">
+              <label className="proposal-select-all">
+                <input
+                  type="checkbox"
+                  checked={allProposalsSelected}
+                  disabled={selectableProposalIds.length === 0 || isApprovingSelected}
+                  onChange={toggleAllProposals}
+                />
+                <span>Selecionar todos</span>
+              </label>
+              {selectedProposalCount > 0 && (
+                <button
+                  className="proposal-bulk-approve"
+                  type="button"
+                  disabled={isApprovingSelected || isSaving}
+                  onClick={() => void approveSelectedProposals()}
+                >
+                  <Check size={15} />
+                  {isApprovingSelected ? 'Aprovando...' : `Aprovar selecionados (${selectedProposalCount})`}
+                </button>
+              )}
+            </div>
+          )}
           <div className="proposal-list">
             {project.compositions.map((proposal) => (
-              <button
-                className={`proposal-card ${proposal.id === composition.id ? 'active' : ''}`}
-                type="button"
+              <div
+                className={`proposal-card-row ${selectedProposalIds.has(proposal.id) ? 'is-selected' : ''}`}
                 key={proposal.id}
-                onClick={() => selectComposition(proposal)}
               >
-                <span>{proposal.title}</span>
+                <button
+                  className={`proposal-card ${proposal.id === composition.id ? 'active' : ''}`}
+                  type="button"
+                  onClick={() => selectComposition(proposal)}
+                >
+                  <span>{proposal.title}</span>
                 <small>{formatTime(proposal.durationMs)} · {formatStatus(proposal.status)}</small>
-              </button>
+                </button>
+                {!project.isLayoutDraft && (
+                  <label className="proposal-selection-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={proposal.status !== 'approved' && selectedProposalIds.has(proposal.id)}
+                      disabled={proposal.status === 'approved' || isApprovingSelected}
+                      onChange={() => toggleProposalSelection(proposal.id)}
+                      aria-label={`Selecionar ${proposal.title}`}
+                    />
+                  </label>
+                )}
+              </div>
             ))}
           </div>
           <div className="proposal-help">

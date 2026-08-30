@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import {
   Bot,
   BookOpen,
@@ -82,29 +81,19 @@ const utilityItems = [
 ];
 
 export function Header({}) {
-  const [isPinned, setIsPinned] = useState(false);
-
   return (
     <aside
-      className={`sidebar${isPinned ? ' is-expanded' : ''}`}
+      className="sidebar"
       aria-label="Navegação principal"
     >
       <div className="sidebar-top">
-        <button
-          type="button"
-          className="brand"
-          aria-expanded={isPinned}
-          aria-label={
-            isPinned ? 'Recolher menu lateral' : 'Expandir menu lateral'
-          }
-          onClick={() => setIsPinned((current) => !current)}
-        >
+        <div className="brand" role="img" aria-label="ClipCut">
           <span className="brand-mark">
             <Scissors size={20} strokeWidth={2.4} />
           </span>
 
           <span className="brand-name">ClipCut</span>
-        </button>
+        </div>
 
         <nav className="nav-stack">
           <span className="nav-section-label">Fluxo de criação</span>
@@ -115,7 +104,6 @@ export function Header({}) {
               key={label}
               label={label}
               to={to}
-              onClick={() => setIsPinned(false)}
             />
           ))}
           <div className="nav-divider" />
@@ -126,7 +114,6 @@ export function Header({}) {
               key={label}
               label={label}
               to={to}
-              onClick={() => setIsPinned(false)}
             />
           ))}
         </nav>

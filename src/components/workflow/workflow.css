@@ -1140,3 +1140,223 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Analysis page spacing and review-card collapse controls. */
+.workflow-workspace {
+  gap: 30px;
+}
+
+.workflow-workspace > .workflow-card {
+  padding: 32px !important;
+}
+
+.workflow-card-header {
+  gap: 28px;
+  margin-bottom: 30px;
+}
+
+.workflow-review-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.workflow-collapse-reviewed {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.workflow-review-list {
+  gap: 22px;
+}
+
+.workflow-review-card {
+  gap: 24px;
+  padding: 26px !important;
+}
+
+.workflow-review-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.workflow-review-card.is-collapsed {
+  gap: 0;
+}
+
+.workflow-review-toggle {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  gap: 6px;
+  padding: 0 10px;
+  color: #dbe4f2;
+  background: #17202b;
+  border: 1px solid #344355;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.workflow-review-toggle:hover {
+  color: #ffffff;
+  background: #222e3d;
+  border-color: #53657a;
+}
+
+.workflow-review-meta {
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.workflow-issues {
+  margin-top: 18px;
+}
+
+.workflow-caption-editor {
+  gap: 22px;
+  margin-top: 0;
+  padding: 22px 22px 24px;
+}
+
+.workflow-caption-editor-heading,
+.workflow-caption-save-row {
+  gap: 20px;
+}
+
+.workflow-caption-editor-layout {
+  gap: 24px;
+}
+
+.workflow-caption-controls {
+  gap: 16px;
+  padding-top: 4px;
+}
+
+.workflow-caption-save-row {
+  padding-top: 6px;
+}
+
+.workflow-actions {
+  gap: 12px;
+  margin-top: 30px;
+  padding-top: 24px;
+}
+
+@media (max-width: 640px) {
+  .workflow-workspace > .workflow-card {
+    padding: 24px !important;
+  }
+
+  .workflow-card-header {
+    flex-direction: column;
+  }
+
+  .workflow-review-header-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 520px) {
+  .workflow-review-card {
+    padding: 20px !important;
+  }
+
+  .workflow-review-card-header {
+    flex-direction: column;
+    gap: 14px;
+  }
+}
+
+/* Final selection controls stay aligned even with long cut names. */
+.workflow-selection-workspace .workflow-card-header {
+  align-items: center;
+}
+
+.workflow-selection-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 0 0 auto;
+}
+
+.workflow-selection-workspace .workflow-select-all,
+.workflow-selection-workspace .workflow-actions > .workflow-primary,
+.workflow-selection-workspace .workflow-actions > .workflow-secondary {
+  display: inline-flex;
+  width: 240px;
+  min-width: 240px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.workflow-selection-workspace .workflow-selection-list {
+  gap: 16px;
+}
+
+.workflow-selection-workspace .workflow-selection-card {
+  width: 100%;
+  min-height: 78px;
+}
+
+.workflow-selection-workspace .workflow-selection-card > span {
+  min-width: 0;
+}
+
+.workflow-selection-workspace .workflow-selection-card h3 {
+  overflow: hidden;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-selection-workspace .workflow-selection-card > input[type='checkbox'] {
+  appearance: auto;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 0 !important;
+  border-radius: 3px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  accent-color: #8b5cf6;
+  cursor: pointer;
+}
+
+.workflow-selection-workspace .workflow-selection-card:has(> input[type='checkbox']:checked) {
+  border-color: #8b5cf6;
+  background: #29264d;
+}
+
+@media (max-width: 640px) {
+  .workflow-selection-workspace .workflow-card-header {
+    align-items: flex-start;
+  }
+
+  .workflow-selection-header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .workflow-selection-workspace .workflow-select-all,
+  .workflow-selection-workspace .workflow-actions > .workflow-primary,
+  .workflow-selection-workspace .workflow-actions > .workflow-secondary {
+    width: 100%;
+    min-width: 0;
+  }
+}

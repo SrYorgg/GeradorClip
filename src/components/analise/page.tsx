@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
-import { AlertTriangle, ArrowRight, Bot, CheckCircle2, Move, RefreshCw, Save, Type } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Bot, CheckCircle2, ChevronDown, ChevronUp, Move, RefreshCw, Save, Type } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { CaptionSettings, CaptionTrack, Project, ProjectSummary } from '../../features/editor/domain/editor.types';
 import { getCaptionBackgroundColor, getCaptionSettings, updateCaptionCueText } from '../../lib/captionSettings';
@@ -287,6 +287,7 @@ export function AnalysisPage() {
   const [captionDrafts, setCaptionDrafts] = useState<Record<string, CaptionTrack>>({});
   const [captionSettingsDrafts, setCaptionSettingsDrafts] = useState<Record<string, CaptionSettings>>({});
   const [savingCaptionId, setSavingCaptionId] = useState<string | null>(null);
+  const [collapsedCompositionIds, setCollapsedCompositionIds] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const allReviewed = Boolean(
@@ -302,6 +303,12 @@ export function AnalysisPage() {
   const readyToApproveCount = project?.compositions.filter(
     (composition) => composition.review?.status === 'ready' && composition.status !== 'approved',
   ).length || 0;
+  const reviewedCompositionIds = project?.compositions
+    .filter((composition) => composition.review?.status && composition.review.status !== 'pending')
+    .map((composition) => composition.id) || [];
+  const allReviewedCollapsed = reviewedCompositionIds.length > 0 && reviewedCompositionIds.every(
+    (compositionId) => collapsedCompositionIds.has(compositionId),
+  );
 
   function seedCaptionDrafts(nextProject: Project) {
     setCaptionDrafts(Object.fromEntries(
@@ -345,6 +352,7 @@ export function AnalysisPage() {
       .then((loadedProject) => {
         if (isCurrent) {
           setProject(loadedProject);
+          setCollapsedCompositionIds(new Set());
           seedCaptionDrafts(loadedProject);
         }
       })
@@ -370,6 +378,30 @@ export function AnalysisPage() {
     setMessage('');
   }
 
+  function toggleCompositionCollapsed(compositionId: string) {
+    setCollapsedCompositionIds((currentIds) => {
+      const nextIds = new Set(currentIds);
+      if (nextIds.has(compositionId)) {
+        nextIds.delete(compositionId);
+      } else {
+        nextIds.add(compositionId);
+      }
+      return nextIds;
+    });
+  }
+
+  function toggleReviewedCompositions() {
+    setCollapsedCompositionIds((currentIds) => {
+      const nextIds = new Set(currentIds);
+      if (allReviewedCollapsed) {
+        reviewedCompositionIds.forEach((compositionId) => nextIds.delete(compositionId));
+      } else {
+        reviewedCompositionIds.forEach((compositionId) => nextIds.add(compositionId));
+      }
+      return nextIds;
+    });
+  }
+
   async function analyzeCuts() {
     if (!project) {
       return;
@@ -381,6 +413,7 @@ export function AnalysisPage() {
       setMessage('');
       const analyzedProject = await reviewProject(project.id);
       setProject(analyzedProject);
+      setCollapsedCompositionIds(new Set());
       setMessage('Análise concluída. Ajuste os cortes sinalizados e aprove os cortes prontos para liberar a seleção.');
     } catch {
       setError('Nao foi possivel analisar os cortes.');
@@ -487,10 +520,18 @@ export function AnalysisPage() {
                 <h2>{project.compositions.length} cortes para verificar</h2>
                 <p>A análise é baseada nos dados salvos do Editor e pode ser repetida após qualquer ajuste.</p>
               </div>
-              <button className="workflow-primary" type="button" disabled={isAnalyzing || isApproving} onClick={() => void analyzeCuts()}>
-                <RefreshCw size={16} />
-                {isAnalyzing ? 'Analisando...' : 'Analisar cortes'}
-              </button>
+              <div className="workflow-review-header-actions">
+                {reviewedCompositionIds.length > 0 && (
+                  <button className="workflow-secondary workflow-collapse-reviewed" type="button" onClick={toggleReviewedCompositions}>
+                    {allReviewedCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+                    {allReviewedCollapsed ? 'Expandir revisados' : 'Recolher revisados'}
+                  </button>
+                )}
+                <button className="workflow-primary" type="button" disabled={isAnalyzing || isApproving} onClick={() => void analyzeCuts()}>
+                  <RefreshCw size={16} />
+                  {isAnalyzing ? 'Analisando...' : 'Analisar cortes'}
+                </button>
+              </div>
             </div>
 
             {message && <p className="workflow-message">{message}</p>}
@@ -502,10 +543,12 @@ export function AnalysisPage() {
                 const captionSettings = captionSettingsDrafts[composition.id] || getCaptionSettings(composition.captionSettings);
                 const captionTrack = captionDrafts[composition.id] || (composition.captionTrack ? getEditableCaptionTrack(composition.captionTrack) : undefined);
                 const sourceVideoUrl = project.assets.find((asset) => asset.type === 'video')?.url;
+                const isCollapsed = collapsedCompositionIds.has(composition.id);
 
                 return (
-                  <article className="workflow-review-card" key={composition.id}>
-                    <div className="workflow-review-summary">
+                  <article className={`workflow-review-card ${isCollapsed ? 'is-collapsed' : ''}`} key={composition.id}>
+                    <div className="workflow-review-card-header">
+                      <div className="workflow-review-summary">
                       <h3>{composition.title}</h3>
                       <p>Revisão {composition.revision} · {Math.round(composition.durationMs / 1000)}s</p>
                       <div className="workflow-review-meta">
@@ -531,8 +574,21 @@ export function AnalysisPage() {
                           {review.issues.map((issue) => <li key={issue}>{issue}</li>)}
                         </ul>
                       )}
+                      </div>
+                      <button
+                        className="workflow-review-toggle"
+                        type="button"
+                        aria-expanded={!isCollapsed}
+                        aria-label={isCollapsed ? `Expandir ${composition.title}` : `Recolher ${composition.title}`}
+                        onClick={() => toggleCompositionCollapsed(composition.id)}
+                      >
+                        {isCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+                        {isCollapsed ? 'Expandir' : 'Recolher'}
+                      </button>
                     </div>
-                    <CaptionEditor
+                    {!isCollapsed && (
+                      <>
+                        <CaptionEditor
                       composition={composition}
                       videoUrl={sourceVideoUrl}
                       track={captionTrack}
@@ -545,10 +601,12 @@ export function AnalysisPage() {
                       }))}
                       onSave={() => void saveCaption(composition)}
                     />
-                    <Link className="workflow-link" to={`/projetos/${project.id}/cortes/${composition.id}/editor`}>
-                      {hasIssues ? 'Ajustar layout' : 'Abrir corte'}
-                      <ArrowRight size={15} />
-                    </Link>
+                     <Link className="workflow-link" to={`/projetos/${project.id}/cortes/${composition.id}/editor`}>
+                       {hasIssues ? 'Ajustar layout' : 'Abrir corte'}
+                       <ArrowRight size={15} />
+                     </Link>
+                      </>
+                    )}
                   </article>
                 );
               })}

@@ -154,6 +154,106 @@
 .proposal-list {
   display: grid;
   gap: 8px;
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+
+.proposal-selection-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.proposal-select-all,
+.proposal-selection-checkbox {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.proposal-select-all {
+  gap: 7px;
+  color: #cbd5e1;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.proposal-select-all input,
+.proposal-selection-checkbox input {
+  appearance: auto;
+  width: 17px;
+  height: 17px;
+  min-width: 17px;
+  min-height: 17px;
+  margin: 0;
+  padding: 0;
+  border: 0 !important;
+  border-radius: 3px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  accent-color: #8b5cf6;
+  cursor: pointer;
+}
+
+.proposal-bulk-approve {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  color: #122019;
+  background: #86efac;
+  border: 1px solid #bbf7d0;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.proposal-bulk-approve:hover:not(:disabled) {
+  background: #a7f3d0;
+}
+
+.proposal-bulk-approve:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.proposal-card-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.proposal-card-row .proposal-card {
+  min-width: 0;
+}
+
+.proposal-selection-checkbox {
+  justify-content: center;
+  min-height: 100%;
+  color: #94a2b2;
+  background: rgb(21 30 41 / 72%);
+  border: 1px solid #334254;
+  border-radius: 10px;
+}
+
+.proposal-selection-checkbox:has(input:checked) {
+  color: #ffffff;
+  background: rgb(124 58 237 / 28%);
+  border-color: #8b5cf6;
+}
+
+.proposal-selection-checkbox:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.52;
 }
 
 .proposal-card {
@@ -944,12 +1044,17 @@
 
 .composition-workspace {
   gap: 22px;
+  align-items: start;
 }
 
 .composition-panel,
 .composition-preview-panel,
 .composition-timeline-panel {
   padding: 20px;
+}
+
+.composition-preview-panel {
+  align-self: start;
 }
 
 .proposal-card,

@@ -18,8 +18,7 @@
 }
 
 .sidebar:hover,
-.sidebar:focus-within,
-.sidebar.is-expanded {
+.sidebar:focus-within {
   width: 240px;
   box-shadow: 20px 0 48px rgb(0 0 0 / 34%);
 }
@@ -226,21 +225,17 @@
 
 .sidebar:hover .brand-name,
 .sidebar:focus-within .brand-name,
-.sidebar.is-expanded .brand-name,
 .sidebar:hover .sidebar-label,
 .sidebar:focus-within .sidebar-label,
-.sidebar.is-expanded .sidebar-label,
 .sidebar:hover .profile-copy,
-.sidebar:focus-within .profile-copy,
-.sidebar.is-expanded .profile-copy {
+.sidebar:focus-within .profile-copy {
   max-width: 170px;
   opacity: 1;
   transform: translateX(0);
 }
 
 .sidebar:hover .nav-section-label,
-.sidebar:focus-within .nav-section-label,
-.sidebar.is-expanded .nav-section-label {
+.sidebar:focus-within .nav-section-label {
   max-width: 190px;
   opacity: 1;
   transform: translateX(0);

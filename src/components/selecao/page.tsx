@@ -29,6 +29,11 @@ export function SelectionPage() {
   const canStore = selectedCompositions.length > 0 && selectedCompositions.every(
     (composition) => composition.status === 'approved' && composition.review?.status === 'ready',
   );
+  const allSelected = Boolean(
+    project &&
+    project.compositions.length > 0 &&
+    project.compositions.every((composition) => selectedIds.has(composition.id)),
+  );
 
   useEffect(() => {
     listProjects()
@@ -98,6 +103,16 @@ export function SelectionPage() {
     });
   }
 
+  function toggleSelectAll() {
+    if (!project) {
+      return;
+    }
+
+    setSelectedIds(allSelected
+      ? new Set()
+      : new Set(project.compositions.map((composition) => composition.id)));
+  }
+
   async function storeSelectedCuts() {
     if (!project || selectedIds.size === 0) {
       setError('Selecione pelo menos um corte para armazenar.');
@@ -153,7 +168,7 @@ export function SelectionPage() {
   return (
     <main className="app-shell">
       <Header />
-      <section className="workspace workflow-workspace">
+      <section className="workspace workflow-workspace workflow-selection-workspace">
         <div className="workflow-heading">
           <div>
             <p className="eyebrow">Etapa 5 de 6</p>
@@ -195,7 +210,13 @@ export function SelectionPage() {
                 <h2>{selectedIds.size} de {project.compositions.length} cortes selecionados</h2>
                 <p>Os cortes desmarcados continuam salvos no projeto e podem ser selecionados em outro momento.</p>
               </div>
-              <FolderCheck size={28} />
+              <div className="workflow-selection-header-actions">
+                <button className="workflow-secondary workflow-select-all" type="button" onClick={toggleSelectAll}>
+                  <Check size={16} />
+                  {allSelected ? 'Desmarcar todos' : 'Selecionar todos'}
+                </button>
+                <FolderCheck size={28} />
+              </div>
             </div>
 
             <div className="workflow-selection-list">
