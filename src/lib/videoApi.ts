@@ -1,4 +1,9 @@
 import type { Canvas, Composition, LayoutConfig, Project, ProjectAsset, ProjectSummary } from '../features/editor/domain/editor.types';
+import type {
+  EditorialConfig,
+  EditorialProviderStatus,
+  EditorialScore,
+} from '../features/editorial/domain/editorial.types';
 
 export type UploadedVideo = {
   id: string;
@@ -14,6 +19,30 @@ export type UploadedVideo = {
   aiStatus?: 'pending' | 'processing' | 'done' | 'error';
   analysis?: VideoAnalysis | null;
   analysisError?: string | null;
+  sourceType?: 'file' | 'url';
+  sourceUrl?: string;
+  sourceProvider?: 'youtube' | 'external';
+  audienceRecommendations?: AudienceRecommendation[];
+  audienceInsight?: AudienceInsight;
+};
+
+export type AudienceRecommendation = {
+  id: string;
+  startSeconds: number;
+  endSeconds: number;
+  durationSeconds: number;
+  intensity: number;
+  score: number;
+  source: 'youtube-most-replayed';
+  rank: number;
+};
+
+export type AudienceInsight = {
+  source: 'youtube-most-replayed' | null;
+  available: boolean;
+  markers: number;
+  message: string | null;
+  fetchedAt: string;
 };
 
 export type GeneratedClip = {
@@ -41,10 +70,83 @@ export type GeneratedClip = {
   subtitleSource?: string | null;
   subtitleCorrections?: number;
   audioMode?: string;
+  recommendationScore?: number;
+  recommendationSource?: 'youtube-most-replayed';
+};
+
+export type ExportJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type ExportJobPhase = 'preflight' | 'captions' | 'render' | 'validate' | 'cleanup';
+export type ExportJobClipStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+
+export type ExportJobClipResult = {
+  clipId: string;
+  title: string;
+  status: ExportJobClipStatus;
+  phase: ExportJobPhase;
+  progress: number;
+  attempts: number;
+  errorCode?: string | null;
+  error?: string | null;
+  fileName?: string;
+  url?: string;
+  shouldCaption?: boolean;
+  subtitleMode?: string;
+  subtitleFont?: string;
+  subtitlePosition?: string;
+  subtitleDisplayMode?: string;
+  subtitleLanguage?: string;
+  subtitlePath?: string | null;
+  subtitleSource?: string | null;
+  subtitleCorrections?: number;
+  audioMode?: string;
+  exportResult?: {
+    ok: boolean;
+    mode?: string;
+    message?: string;
+  };
+};
+
+export type ExportJob = {
+  version: number;
+  id: string;
+  status: ExportJobStatus;
+  phase: ExportJobPhase;
+  progress: number;
+  videoId: string;
+  sourceName: string;
+  projectId?: string | null;
+  clipIds: string[];
+  compositionIds?: string[];
+  inputRevision?: number;
+  packageId: string;
+  folderName: string;
+  options: {
+    subtitleMode: string;
+    manualSubtitleText?: string;
+    subtitleCorrections?: Array<{ from: string; to: string }>;
+    subtitleFont: string;
+    subtitlePosition: string;
+    subtitleDisplayMode: string;
+    subtitleLanguage: string;
+    audioMode: string;
+  };
+  clipResults: ExportJobClipResult[];
+  outputPaths?: string[];
+  galleryPackageId?: string | null;
+  retryCount: number;
+  cancelRequested?: boolean;
+  currentClipId?: string | null;
+  errorCode?: string | null;
+  error?: string | null;
+  createdAt: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  updatedAt: string;
 };
 
 export type GalleryPackage = {
   id: string;
+  jobId?: string | null;
   title: string;
   folderName: string;
   folderUrl: string;
@@ -61,6 +163,12 @@ export type GalleryPackage = {
   subtitleCorrections?: number;
   audioMode: string;
   clips: GeneratedClip[];
+};
+
+export type EditorialAnalysis = {
+  model: string;
+  confidence: string;
+  score: EditorialScore;
 };
 
 export type VideoAnalysis = {
@@ -121,6 +229,20 @@ export async function uploadVideo(file: File, durationSeconds: number) {
   return data.video;
 }
 
+export async function importVideoFromUrl(url: string) {
+  const response = await fetch('/api/videos/import-url', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ url }),
+  });
+  await assertApiResponse(response);
+
+  const data = (await response.json()) as { video: UploadedVideo };
+  return data.video;
+}
+
 export async function listUploadedVideos() {
   const response = await fetch('/api/videos');
   await assertApiResponse(response);
@@ -140,7 +262,7 @@ export async function listGeneratedClips() {
 export async function generateVideoClips(
   id: string,
   options: {
-    mode: 'duration' | 'count';
+    mode: 'duration' | 'count' | 'recommended';
     targetDurationSeconds: number;
     targetClipCount: number;
   },
@@ -155,7 +277,7 @@ export async function generateVideoClips(
 
   await assertApiResponse(response);
 
-  const data = (await response.json()) as { video: UploadedVideo; clips: GeneratedClip[] };
+  const data = (await response.json()) as { video: UploadedVideo; clips: GeneratedClip[]; maxClipCount?: number };
   return data;
 }
 
@@ -165,6 +287,46 @@ export async function listGalleryPackages() {
 
   const data = (await response.json()) as { packages: GalleryPackage[] };
   return data.packages;
+}
+
+export async function listExportJobs() {
+  const response = await fetch('/api/export-jobs');
+  await assertApiResponse(response);
+
+  const data = (await response.json()) as { jobs: ExportJob[] };
+  return data.jobs;
+}
+
+export async function getExportJob(id: string) {
+  const response = await fetch(`/api/export-jobs/${id}`);
+  await assertApiResponse(response);
+
+  const data = (await response.json()) as { job: ExportJob };
+  return data.job;
+}
+
+export async function cancelExportJob(id: string) {
+  const response = await fetch(`/api/export-jobs/${id}/cancel`, {
+    method: 'POST',
+  });
+  await assertApiResponse(response);
+
+  const data = (await response.json()) as { job: ExportJob };
+  return data.job;
+}
+
+export async function retryExportJob(id: string, clipId?: string) {
+  const response = await fetch(`/api/export-jobs/${id}/retry`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(clipId ? { clipId } : {}),
+  });
+  await assertApiResponse(response);
+
+  const data = (await response.json()) as { job: ExportJob };
+  return data.job;
 }
 
 export async function exportClipsToGallery(payload: {
@@ -191,8 +353,8 @@ export async function exportClipsToGallery(payload: {
 
   await assertApiResponse(response);
 
-  const data = (await response.json()) as { package: GalleryPackage };
-  return data.package;
+  const data = (await response.json()) as { job: ExportJob };
+  return data.job;
 }
 
 export async function deleteUploadedVideo(id: string) {
@@ -222,6 +384,64 @@ export async function getAiStatus() {
     status: Record<string, boolean>;
   };
   return data.status;
+}
+
+export async function getEditorialConfig() {
+  const response = await fetch('/api/editorial/config');
+  await assertApiResponse(response);
+
+  const data = (await response.json()) as { config: EditorialConfig };
+  return data.config;
+}
+
+export async function saveEditorialConfig(config: EditorialConfig) {
+  const response = await fetch('/api/editorial/config', {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(config),
+  });
+  await assertApiResponse(response);
+
+  const data = (await response.json()) as { config: EditorialConfig };
+  return data.config;
+}
+
+export async function getEditorialStatus() {
+  const response = await fetch('/api/editorial/status');
+  await assertApiResponse(response);
+
+  const data = (await response.json()) as { status: EditorialProviderStatus };
+  return data.status;
+}
+
+export async function analyzeProjectEditorial(projectId: string) {
+  const response = await fetch(`/api/projects/${projectId}/editorial/analyze`, {
+    method: 'POST',
+  });
+  await assertApiResponse(response);
+
+  const data = (await response.json()) as { project: Project };
+  return data.project;
+}
+
+export async function saveCompositionEditorial(
+  projectId: string,
+  compositionId: string,
+  payload: { title: string; description: string },
+) {
+  const response = await fetch(`/api/projects/${projectId}/compositions/${compositionId}/editorial`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  await assertApiResponse(response);
+
+  const data = (await response.json()) as { project: Project };
+  return data.project;
 }
 
 export async function listProjects() {
@@ -260,9 +480,9 @@ export async function generateProjectClips(projectId: string) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      mode: 'count',
+      mode: 'duration',
       targetDurationSeconds: 60,
-      targetClipCount: 5,
+      targetClipCount: 1,
     }),
   });
 

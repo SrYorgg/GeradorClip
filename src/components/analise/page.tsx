@@ -1,19 +1,14 @@
-import { useEffect, useState } from 'react';
-import { AlertTriangle, ArrowRight, Bot, CheckCircle2, RefreshCw } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
+import { AlertTriangle, ArrowRight, Bot, CheckCircle2, Move, RefreshCw, Save, Type } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
-import type { Project, ProjectSummary } from '../../features/editor/domain/editor.types';
-import { approveReadyCompositions, getProject, listProjects, reviewProject } from '../../lib/videoApi';
+import type { CaptionSettings, CaptionTrack, Project, ProjectSummary } from '../../features/editor/domain/editor.types';
+import { getCaptionBackgroundColor, getCaptionSettings, updateCaptionCueText } from '../../lib/captionSettings';
+import { getSubtitleFont } from '../../lib/subtitleFonts';
+import { approveReadyCompositions, getProject, listProjects, reviewProject, saveComposition } from '../../lib/videoApi';
 import { Header } from '../main/Header';
+import { StepIndicator } from '../ui';
 import '../workflow/workflow.css';
-
-const workflowSteps = [
-  ['1', 'Armazenar vídeo', '/arquivos'],
-  ['2', 'Editar layout', '/projetos'],
-  ['3', 'Produzir legenda', '/legendas'],
-  ['4', 'Analisar cortes', '/analise'],
-  ['5', 'Selecionar cortes', '/selecionar'],
-  ['6', 'Cortes armazenados', '/galeria'],
-] as const;
 
 function getReviewLabel(status: 'pending' | 'ready' | 'needs-adjustment') {
   return {
@@ -23,15 +18,275 @@ function getReviewLabel(status: 'pending' | 'ready' | 'needs-adjustment') {
   }[status];
 }
 
+function clamp(value: number, minimum: number, maximum: number) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function getCaptionPreviewText(track: CaptionTrack | undefined, displayMode: CaptionSettings['displayMode']) {
+  if (!track) {
+    return '';
+  }
+
+  if (displayMode === 'word' && track.words?.[0]?.text) {
+    return track.words[0].text;
+  }
+
+  return track.cues?.[0]?.text || track.words?.[0]?.text || '';
+}
+
+function getEditableCaptionTrack(track: CaptionTrack): CaptionTrack {
+  if (track.cues?.length) {
+    return track;
+  }
+
+  return {
+    ...track,
+    cues: (track.words || []).map((word) => ({
+      id: `cue-${word.id}`,
+      text: word.text,
+      startMs: word.startMs,
+      endMs: word.endMs,
+    })),
+  };
+}
+
+type CaptionPositionEditorProps = {
+  videoUrl?: string;
+  settings: CaptionSettings;
+  previewText: string;
+  onChange: (values: Pick<CaptionSettings, 'positionX' | 'positionY'>) => void;
+};
+
+function CaptionPositionEditor({ videoUrl, settings, previewText, onChange }: CaptionPositionEditorProps) {
+  const stageRef = useRef<HTMLDivElement>(null);
+  const pointerIdRef = useRef<number | null>(null);
+  const captionStyle: CSSProperties = {
+    left: `${settings.positionX ?? 50}%`,
+    top: `${settings.positionY ?? 86}%`,
+    width: settings.displayMode === 'word' ? 'auto' : `${settings.maxWidthPct ?? 84}%`,
+    color: settings.displayMode === 'word' ? settings.highlightColor : settings.textColor,
+    backgroundColor: getCaptionBackgroundColor(settings),
+    fontFamily: getSubtitleFont(settings.font || 'inter').cssFamily,
+    fontSize: `${Math.max(11, Number(settings.fontSize || 42) * 0.42)}px`,
+    textShadow: `0 1px 2px ${settings.outlineColor || '#111111'}, 0 2px 8px ${settings.outlineColor || '#111111'}`,
+  };
+
+  function moveCaption(event: ReactPointerEvent<Element>) {
+    if (pointerIdRef.current !== event.pointerId || !stageRef.current) {
+      return;
+    }
+
+    const bounds = stageRef.current.getBoundingClientRect();
+    onChange({
+      positionX: Math.round(clamp(((event.clientX - bounds.left) / bounds.width) * 100, 5, 95)),
+      positionY: Math.round(clamp(((event.clientY - bounds.top) / bounds.height) * 100, 5, 95)),
+    });
+  }
+
+  function handlePointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+    pointerIdRef.current = event.pointerId;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    moveCaption(event);
+  }
+
+  function handlePointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+    if (pointerIdRef.current === event.pointerId) {
+      pointerIdRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    }
+  }
+
+  function nudge(axis: 'x' | 'y', amount: number) {
+    onChange({
+      positionX: axis === 'x' ? clamp((settings.positionX ?? 50) + amount, 5, 95) : settings.positionX,
+      positionY: axis === 'y' ? clamp((settings.positionY ?? 86) + amount, 5, 95) : settings.positionY,
+    });
+  }
+
+  return (
+    <div className="workflow-caption-position">
+      <div className="workflow-caption-position-heading">
+        <span>Posição no vídeo</span>
+        <small>{Math.round(settings.positionX ?? 50)}% · {Math.round(settings.positionY ?? 86)}%</small>
+      </div>
+      <div
+        className="workflow-caption-stage"
+        ref={stageRef}
+        onPointerMove={moveCaption}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowLeft') nudge('x', -1);
+          if (event.key === 'ArrowRight') nudge('x', 1);
+          if (event.key === 'ArrowUp') nudge('y', -1);
+          if (event.key === 'ArrowDown') nudge('y', 1);
+        }}
+        tabIndex={0}
+        role="application"
+        aria-label="Arraste a legenda para escolher sua posição"
+      >
+        {videoUrl ? <video className="workflow-caption-stage-video" src={videoUrl} muted playsInline preload="metadata" /> : <div className="workflow-caption-stage-fallback" />}
+        <button
+          className="workflow-caption-draggable"
+          type="button"
+          style={captionStyle}
+          onPointerDown={handlePointerDown}
+          aria-label="Legenda. Arraste para posicionar"
+        >
+          <Move size={12} />
+          {previewText || 'Sua legenda aparecerá aqui'}
+        </button>
+        <span className="workflow-caption-stage-hint">Arraste · setas para ajustar</span>
+      </div>
+    </div>
+  );
+}
+
+type CaptionEditorProps = {
+  composition: Project['compositions'][number];
+  videoUrl?: string;
+  track?: CaptionTrack;
+  settings: CaptionSettings;
+  isSaving: boolean;
+  onTrackChange: (track: CaptionTrack) => void;
+  onSettingsChange: (settings: Partial<CaptionSettings>) => void;
+  onSave: () => void;
+};
+
+function CaptionEditor({ composition, videoUrl, track, settings, isSaving, onTrackChange, onSettingsChange, onSave }: CaptionEditorProps) {
+  const cues = track?.cues || [];
+  const previewText = getCaptionPreviewText(track, settings.displayMode);
+  const positionPreset = settings.position || 'bottom';
+
+  return (
+    <div className="workflow-caption-editor">
+      <div className="workflow-caption-editor-heading">
+        <div>
+          <span className="workflow-caption-kicker"><Type size={14} /> Legenda completa</span>
+          <strong>Corrija o texto sem perder a sincronização</strong>
+          <p>Edite cada fala abaixo. Os tempos originais são preservados; se você adicionar ou remover palavras, elas são redistribuídas dentro do mesmo trecho.</p>
+        </div>
+        <span className="workflow-caption-count">{cues.length} falas</span>
+      </div>
+
+      <div className="workflow-caption-editor-layout">
+        <div className="workflow-caption-cues">
+          {cues.length > 0 ? cues.map((cue, index) => (
+            <label className="workflow-caption-cue" key={cue.id}>
+              <span>{String(index + 1).padStart(2, '0')} · {Math.round(cue.startMs / 1000)}s–{Math.round(cue.endMs / 1000)}s</span>
+              <textarea
+                value={cue.text}
+                rows={2}
+                onChange={(event) => onTrackChange(updateCaptionCueText(track as CaptionTrack, cue.id, event.target.value))}
+                aria-label={`Texto da fala ${index + 1}`}
+              />
+            </label>
+          )) : (
+            <div className="workflow-caption-empty">
+              <strong>Ainda não há transcrição pronta neste corte.</strong>
+              <span>Conclua a produção da legenda na etapa 3 e volte para revisar as palavras aqui.</span>
+            </div>
+          )}
+        </div>
+
+        <CaptionPositionEditor
+          videoUrl={videoUrl}
+          settings={settings}
+          previewText={previewText}
+          onChange={onSettingsChange}
+        />
+      </div>
+
+      <div className="workflow-caption-controls">
+        <label className="workflow-field">
+          Fonte
+          <select value={settings.font || 'inter'} onChange={(event) => onSettingsChange({ font: event.target.value })}>
+            {['inter', 'montserrat', 'poppins', 'roboto', 'open-sans', 'lato', 'oswald'].map((font) => (
+              <option value={font} key={font}>{getSubtitleFont(font).label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="workflow-field">
+          Posição rápida
+          <select
+            value={positionPreset}
+            onChange={(event) => {
+              const position = event.target.value as CaptionSettings['position'];
+              onSettingsChange({
+                position,
+                positionX: 50,
+                positionY: position === 'top' ? 12 : position === 'middle' ? 50 : 86,
+              });
+            }}
+          >
+            <option value="top">Superior</option>
+            <option value="middle">Centro</option>
+            <option value="bottom">Inferior</option>
+          </select>
+        </label>
+        <label className="workflow-field">
+          Exibição
+          <select value={settings.displayMode || 'block'} onChange={(event) => onSettingsChange({ displayMode: event.target.value as CaptionSettings['displayMode'] })}>
+            <option value="block">Frase em blocos</option>
+            <option value="word">Palavra ativa destacada</option>
+          </select>
+        </label>
+        <label className="workflow-field workflow-range-field">
+          Tamanho <strong>{Math.round(settings.fontSize || 42)} px</strong>
+          <input type="range" min="24" max="96" step="1" value={settings.fontSize || 42} onChange={(event) => onSettingsChange({ fontSize: Number(event.target.value) })} />
+        </label>
+        <label className="workflow-field workflow-range-field">
+          Largura máxima <strong>{Math.round(settings.maxWidthPct || 84)}%</strong>
+          <input type="range" min="35" max="95" step="1" value={settings.maxWidthPct || 84} onChange={(event) => onSettingsChange({ maxWidthPct: Number(event.target.value) })} />
+        </label>
+        <label className="workflow-field workflow-color-field">
+          Cor do texto
+          <input type="color" value={settings.textColor || '#FFFFFF'} onChange={(event) => onSettingsChange({ textColor: event.target.value })} />
+        </label>
+        <label className="workflow-field workflow-color-field">
+          Cor da palavra ativa
+          <input type="color" value={settings.highlightColor || '#73DDBD'} onChange={(event) => onSettingsChange({ highlightColor: event.target.value })} />
+        </label>
+        <label className="workflow-field workflow-color-field">
+          Cor do contorno
+          <input type="color" value={settings.outlineColor || '#111111'} onChange={(event) => onSettingsChange({ outlineColor: event.target.value })} />
+        </label>
+        <label className="workflow-field workflow-range-field">
+          Fundo <strong>{Math.round(Number(settings.backgroundOpacity || 0) * 100)}%</strong>
+          <input type="range" min="0" max="1" step="0.05" value={settings.backgroundOpacity ?? 0.6} onChange={(event) => onSettingsChange({ backgroundOpacity: Number(event.target.value) })} />
+        </label>
+        <label className="workflow-field workflow-color-field">
+          Cor do fundo
+          <input type="color" value={settings.backgroundColor || '#000000'} onChange={(event) => onSettingsChange({ backgroundColor: event.target.value })} />
+        </label>
+      </div>
+
+      <div className="workflow-caption-save-row">
+        <span>As alterações de texto e aparência serão aplicadas a “{composition.title}”.</span>
+        <button className="workflow-secondary" type="button" disabled={isSaving} onClick={onSave}>
+          <Save size={15} />
+          {isSaving ? 'Salvando...' : 'Salvar legenda e aparência'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function AnalysisPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState(searchParams.get('projectId') || '');
+  const requestedProjectId = searchParams.get('projectId');
   const [project, setProject] = useState<Project | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isProjectLoading, setIsProjectLoading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
+  const [captionDrafts, setCaptionDrafts] = useState<Record<string, CaptionTrack>>({});
+  const [captionSettingsDrafts, setCaptionSettingsDrafts] = useState<Record<string, CaptionSettings>>({});
+  const [savingCaptionId, setSavingCaptionId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const allReviewed = Boolean(
@@ -48,12 +303,22 @@ export function AnalysisPage() {
     (composition) => composition.review?.status === 'ready' && composition.status !== 'approved',
   ).length || 0;
 
+  function seedCaptionDrafts(nextProject: Project) {
+    setCaptionDrafts(Object.fromEntries(
+      nextProject.compositions
+        .filter((composition) => composition.captionTrack)
+        .map((composition) => [composition.id, getEditableCaptionTrack(composition.captionTrack as CaptionTrack)]),
+    ));
+    setCaptionSettingsDrafts(Object.fromEntries(
+      nextProject.compositions.map((composition) => [composition.id, getCaptionSettings(composition.captionSettings)]),
+    ));
+  }
+
   useEffect(() => {
     listProjects()
       .then((loadedProjects) => {
         const readyProjects = loadedProjects.filter((currentProject) => !currentProject.isLayoutDraft);
         setProjects(readyProjects);
-        const requestedProjectId = searchParams.get('projectId');
         const nextProjectId =
           readyProjects.find((currentProject) => currentProject.id === requestedProjectId)?.id ||
           readyProjects[0]?.id ||
@@ -65,7 +330,7 @@ export function AnalysisPage() {
       })
       .catch(() => setError('Nao foi possivel carregar os projetos.'))
       .finally(() => setIsLoading(false));
-  }, [searchParams, setSearchParams]);
+  }, [requestedProjectId, setSearchParams]);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -80,6 +345,7 @@ export function AnalysisPage() {
       .then((loadedProject) => {
         if (isCurrent) {
           setProject(loadedProject);
+          seedCaptionDrafts(loadedProject);
         }
       })
       .catch(() => {
@@ -146,6 +412,36 @@ export function AnalysisPage() {
     }
   }
 
+  async function saveCaption(composition: Project['compositions'][number]) {
+    const currentComposition = project?.compositions.find((current) => current.id === composition.id) || composition;
+    if (!project) {
+      return;
+    }
+
+    try {
+      setSavingCaptionId(composition.id);
+      setError('');
+      const result = await saveComposition({
+        ...currentComposition,
+        captionTrack: captionDrafts[composition.id] || currentComposition.captionTrack,
+        captionSettings: captionSettingsDrafts[composition.id] || getCaptionSettings(currentComposition.captionSettings),
+      });
+      setProject(result.project);
+      if (result.composition.captionTrack) {
+        setCaptionDrafts((current) => ({ ...current, [composition.id]: result.composition.captionTrack as CaptionTrack }));
+      }
+      setCaptionSettingsDrafts((current) => ({
+        ...current,
+        [composition.id]: getCaptionSettings(result.composition.captionSettings),
+      }));
+      setMessage(`Legenda de “${composition.title}” salva com sucesso.`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Nao foi possivel salvar a legenda.');
+    } finally {
+      setSavingCaptionId(null);
+    }
+  }
+
   return (
     <main className="app-shell">
       <Header />
@@ -168,14 +464,7 @@ export function AnalysisPage() {
           )}
         </div>
 
-        <nav className="workflow-steps" aria-label="Etapas do fluxo de criação">
-          {workflowSteps.map(([number, label, to], index) => (
-            <Link className={`workflow-step ${index === 3 ? 'active' : index < 3 ? 'done' : ''}`} to={to} key={number}>
-              <span className="workflow-step-number">{number}</span>
-              <span>{label}</span>
-            </Link>
-          ))}
-        </nav>
+        <StepIndicator currentStep={4} />
 
         {isLoading && <div className="route-panel">Carregando projetos...</div>}
         {isProjectLoading && !isLoading && <div className="route-panel">Carregando projeto...</div>}
@@ -210,10 +499,13 @@ export function AnalysisPage() {
               {project.compositions.map((composition) => {
                 const review = composition.review || { status: 'pending' as const, issues: [] };
                 const hasIssues = review.status === 'needs-adjustment';
+                const captionSettings = captionSettingsDrafts[composition.id] || getCaptionSettings(composition.captionSettings);
+                const captionTrack = captionDrafts[composition.id] || (composition.captionTrack ? getEditableCaptionTrack(composition.captionTrack) : undefined);
+                const sourceVideoUrl = project.assets.find((asset) => asset.type === 'video')?.url;
 
                 return (
                   <article className="workflow-review-card" key={composition.id}>
-                    <div>
+                    <div className="workflow-review-summary">
                       <h3>{composition.title}</h3>
                       <p>Revisão {composition.revision} · {Math.round(composition.durationMs / 1000)}s</p>
                       <div className="workflow-review-meta">
@@ -240,6 +532,19 @@ export function AnalysisPage() {
                         </ul>
                       )}
                     </div>
+                    <CaptionEditor
+                      composition={composition}
+                      videoUrl={sourceVideoUrl}
+                      track={captionTrack}
+                      settings={captionSettings}
+                      isSaving={savingCaptionId === composition.id}
+                      onTrackChange={(track) => setCaptionDrafts((current) => ({ ...current, [composition.id]: track }))}
+                      onSettingsChange={(settings) => setCaptionSettingsDrafts((current) => ({
+                        ...current,
+                        [composition.id]: { ...captionSettings, ...settings },
+                      }))}
+                      onSave={() => void saveCaption(composition)}
+                    />
                     <Link className="workflow-link" to={`/projetos/${project.id}/cortes/${composition.id}/editor`}>
                       {hasIssues ? 'Ajustar layout' : 'Abrir corte'}
                       <ArrowRight size={15} />

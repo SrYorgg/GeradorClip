@@ -4,33 +4,13 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { CaptionSettings, Project, ProjectSummary } from '../../features/editor/domain/editor.types';
 import { getProject, listProjects, saveComposition } from '../../lib/videoApi';
 import { subtitleFonts } from '../../lib/subtitleFonts';
+import { DEFAULT_CAPTION_SETTINGS, getCaptionSettings as mergeCaptionSettings } from '../../lib/captionSettings';
 import { Header } from '../main/Header';
+import { StepIndicator } from '../ui';
 import '../workflow/workflow.css';
 
-const DEFAULT_CAPTION_SETTINGS: CaptionSettings = {
-  mode: 'automatic',
-  manualText: '',
-  corrections: '',
-  font: 'inter',
-  position: 'bottom',
-  displayMode: 'block',
-  language: 'pt-BR',
-};
-
-const workflowSteps = [
-  ['1', 'Armazenar vídeo', '/arquivos'],
-  ['2', 'Editar layout', '/projetos'],
-  ['3', 'Produzir legenda', '/legendas'],
-  ['4', 'Analisar cortes', '/analise'],
-  ['5', 'Selecionar cortes', '/selecionar'],
-  ['6', 'Cortes armazenados', '/galeria'],
-] as const;
-
 function getCaptionSettings(project: Project | null): CaptionSettings {
-  return {
-    ...DEFAULT_CAPTION_SETTINGS,
-    ...project?.compositions.find((composition) => composition.captionSettings)?.captionSettings,
-  };
+  return mergeCaptionSettings(project?.compositions.find((composition) => composition.captionSettings)?.captionSettings);
 }
 
 export function CaptionsPage() {
@@ -38,6 +18,7 @@ export function CaptionsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState(searchParams.get('projectId') || '');
+  const requestedProjectId = searchParams.get('projectId');
   const [project, setProject] = useState<Project | null>(null);
   const [settings, setSettings] = useState<CaptionSettings>(DEFAULT_CAPTION_SETTINGS);
   const [isLoading, setIsLoading] = useState(true);
@@ -51,7 +32,6 @@ export function CaptionsPage() {
       .then((loadedProjects) => {
         const readyProjects = loadedProjects.filter((currentProject) => !currentProject.isLayoutDraft);
         setProjects(readyProjects);
-        const requestedProjectId = searchParams.get('projectId');
         const nextProjectId =
           readyProjects.find((currentProject) => currentProject.id === requestedProjectId)?.id ||
           readyProjects[0]?.id ||
@@ -63,7 +43,7 @@ export function CaptionsPage() {
       })
       .catch(() => setError('Nao foi possivel carregar os projetos.'))
       .finally(() => setIsLoading(false));
-  }, [searchParams, setSearchParams]);
+  }, [requestedProjectId, setSearchParams]);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -174,14 +154,7 @@ export function CaptionsPage() {
           )}
         </div>
 
-        <nav className="workflow-steps" aria-label="Etapas do fluxo de criação">
-          {workflowSteps.map(([number, label, to], index) => (
-            <Link className={`workflow-step ${index === 2 ? 'active' : index < 2 ? 'done' : ''}`} to={to} key={number}>
-              <span className="workflow-step-number">{number}</span>
-              <span>{label}</span>
-            </Link>
-          ))}
-        </nav>
+        <StepIndicator currentStep={3} />
 
         {isLoading && <div className="route-panel">Carregando projetos...</div>}
         {isProjectLoading && !isLoading && <div className="route-panel">Carregando projeto...</div>}
@@ -276,7 +249,7 @@ export function CaptionsPage() {
               {settings.mode !== 'none' && (
                 <label className="workflow-field full">
                   Correções de transcrição
-                  <textarea value={settings.corrections || ''} onChange={(event) => setSettings((current) => ({ ...current, corrections: event.target.value }))} placeholder={'Uma correção por linha. Ex.:\nGerador Clip=GeradorClip'} />
+                  <textarea value={settings.corrections || ''} onChange={(event) => setSettings((current) => ({ ...current, corrections: event.target.value }))} placeholder={'Uma correção por linha. Ex.:\nClip Cut=ClipCut'} />
                   <span className="workflow-field-help">Use o formato palavra ou frase original = texto corrigido.</span>
                 </label>
               )}

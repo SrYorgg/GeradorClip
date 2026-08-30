@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, FolderCheck } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import type { CaptionSettings, Project, ProjectSummary } from '../../features/editor/domain/editor.types';
+import type { Project, ProjectSummary } from '../../features/editor/domain/editor.types';
 import {
   exportClipsToGallery,
   getProject,
@@ -9,32 +9,16 @@ import {
   saveComposition,
 } from '../../lib/videoApi';
 import { Header } from '../main/Header';
+import { DEFAULT_CAPTION_SETTINGS } from '../../lib/captionSettings';
+import { StepIndicator } from '../ui';
 import '../workflow/workflow.css';
-
-const workflowSteps = [
-  ['1', 'Armazenar vídeo', '/arquivos'],
-  ['2', 'Editar layout', '/projetos'],
-  ['3', 'Produzir legenda', '/legendas'],
-  ['4', 'Analisar cortes', '/analise'],
-  ['5', 'Selecionar cortes', '/selecionar'],
-  ['6', 'Cortes armazenados', '/galeria'],
-] as const;
-
-const DEFAULT_CAPTION_SETTINGS: CaptionSettings = {
-  mode: 'automatic',
-  manualText: '',
-  corrections: '',
-  font: 'inter',
-  position: 'bottom',
-  displayMode: 'block',
-  language: 'pt-BR',
-};
 
 export function SelectionPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState(searchParams.get('projectId') || '');
+  const requestedProjectId = searchParams.get('projectId');
   const [project, setProject] = useState<Project | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
@@ -51,7 +35,6 @@ export function SelectionPage() {
       .then((loadedProjects) => {
         const readyProjects = loadedProjects.filter((currentProject) => !currentProject.isLayoutDraft);
         setProjects(readyProjects);
-        const requestedProjectId = searchParams.get('projectId');
         const nextProjectId =
           readyProjects.find((currentProject) => currentProject.id === requestedProjectId)?.id ||
           readyProjects[0]?.id ||
@@ -63,7 +46,7 @@ export function SelectionPage() {
       })
       .catch(() => setError('Nao foi possivel carregar os projetos.'))
       .finally(() => setIsLoading(false));
-  }, [searchParams, setSearchParams]);
+  }, [requestedProjectId, setSearchParams]);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -142,7 +125,7 @@ export function SelectionPage() {
       const selectedCompositions = latestProject.compositions.filter((composition) => selectedIds.has(composition.id));
       const captionSettings = selectedCompositions[0]?.captionSettings || DEFAULT_CAPTION_SETTINGS;
 
-      await exportClipsToGallery({
+      const exportJob = await exportClipsToGallery({
         videoId: latestProject.sourceVideoId,
         projectId: latestProject.id,
         clipIds: selectedCompositions.map((composition) => composition.clipId),
@@ -157,7 +140,7 @@ export function SelectionPage() {
         audioMode: 'Audio original',
       });
 
-      navigate('/galeria');
+      navigate(`/galeria?jobId=${exportJob.id}`);
     } catch (error) {
       setError(error instanceof Error
         ? error.message
@@ -189,14 +172,7 @@ export function SelectionPage() {
           )}
         </div>
 
-        <nav className="workflow-steps" aria-label="Etapas do fluxo de criação">
-          {workflowSteps.map(([number, label, to], index) => (
-            <Link className={`workflow-step ${index === 4 ? 'active' : index < 4 ? 'done' : ''}`} to={to} key={number}>
-              <span className="workflow-step-number">{number}</span>
-              <span>{label}</span>
-            </Link>
-          ))}
-        </nav>
+        <StepIndicator currentStep={5} />
 
         {isLoading && <div className="route-panel">Carregando projetos...</div>}
         {isProjectLoading && !isLoading && <div className="route-panel">Carregando projeto...</div>}

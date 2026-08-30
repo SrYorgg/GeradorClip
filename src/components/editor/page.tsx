@@ -15,6 +15,7 @@ import {
   listUploadedVideos,
   UploadedVideo,
 } from '../../lib/videoApi';
+import { formatDuration } from '../../lib/formatters';
 import { Header } from '../main/Header';
 import './page.css';
 
@@ -37,15 +38,6 @@ type OverlayImage = LayoutBox & {
 const defaultVideoBox: LayoutBox = { x: 0, y: 0, width: 100, height: 100 };
 const defaultCameraBox: LayoutBox = { x: 62, y: 66, width: 30, height: 17 };
 const defaultThumbBox: LayoutBox = { x: 6, y: 6, width: 34, height: 19 };
-
-function formatDuration(seconds: number) {
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = Math.round(seconds % 60)
-    .toString()
-    .padStart(2, '0');
-
-  return `${minutes}:${remainingSeconds}`;
-}
 
 function clampBox(box: LayoutBox): LayoutBox {
   const width = Math.min(100, Math.max(8, Math.round(box.width)));

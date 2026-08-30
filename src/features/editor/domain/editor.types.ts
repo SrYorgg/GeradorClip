@@ -1,3 +1,5 @@
+import type { EditorialMetadata } from '../../editorial/domain/editorial.types';
+
 export type ClipStatus = 'suggested' | 'editing' | 'approved' | 'exporting' | 'completed' | 'error';
 
 export type CropMode = 'cover' | 'contain' | 'custom';
@@ -119,6 +121,16 @@ export type CaptionSettings = {
   position?: CaptionPosition;
   displayMode?: CaptionDisplayMode;
   language?: CaptionLanguage;
+  positionX?: number;
+  positionY?: number;
+  maxWidthPct?: number;
+  fontSize?: number;
+  textColor?: string;
+  highlightColor?: string;
+  outlineColor?: string;
+  outlineWidth?: number;
+  backgroundColor?: string;
+  backgroundOpacity?: number;
 };
 
 export type CompositionReview = {
@@ -143,6 +155,7 @@ export type Composition = {
   framingTrack?: FramingKeyframe[];
   templateSnapshotId?: string;
   brandKitSnapshotId?: string;
+  editorial?: EditorialMetadata;
   aiMetadata?: {
     engine?: string;
     model?: string;

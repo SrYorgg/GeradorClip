@@ -13,22 +13,11 @@ import {
 } from '../../lib/videoApi';
 import { Header } from '../main/Header';
 import { NewClipButton } from '../new-clip/NewClipButton';
+import { StepIndicator } from '../ui';
 import type { CanvasPreset, LayoutConfig } from '../../features/editor/domain/editor.types';
 import { getLayoutPreset, LAYOUT_PRESETS } from '../../features/editor/domain/layout';
+import { formatDuration, formatFileSize } from '../../lib/formatters';
 import './page.css';
-
-function formatDuration(seconds: number) {
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = Math.round(seconds % 60)
-    .toString()
-    .padStart(2, '0');
-
-  return `${minutes}:${remainingSeconds}`;
-}
-
-function formatFileSize(bytes: number) {
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
 
 function createLayoutConfig(preset: CanvasPreset): LayoutConfig {
   const definition = getLayoutPreset(preset);
@@ -275,6 +264,8 @@ export function FilesPage() {
           </div>
         </div>
 
+        <StepIndicator currentStep={1} />
+
         {aiStatus && (
           <div className="ai-status-panel">
             {Object.entries(aiStatus).map(([name, isReady]) => (
@@ -342,6 +333,25 @@ export function FilesPage() {
                   {video.aiStatus && <span className={`ai-status-badge ${video.aiStatus}`}>{video.aiStatus}</span>}
                 </div>
                 {/* O diagnóstico técnico da fonte continua disponível no player, mas não interrompe o fluxo principal. */}
+                {video.audienceRecommendations?.length ? (
+                  <div className="video-audience-recommendations">
+                    <div className="video-audience-heading">
+                      <strong>Momentos mais assistidos</strong>
+                      <span>YouTube</span>
+                    </div>
+                    <div className="video-audience-list">
+                      {video.audienceRecommendations.slice(0, 5).map((recommendation) => (
+                        <span key={recommendation.id}>
+                          {formatDuration(recommendation.startSeconds)} - {formatDuration(recommendation.endSeconds)}
+                          {typeof recommendation.score === 'number' ? ` · ${Math.round(recommendation.score)}%` : ''}
+                        </span>
+                      ))}
+                    </div>
+                    <small>Na Produção, escolha “Momentos mais assistidos” para gerar esses cortes.</small>
+                  </div>
+                ) : video.audienceInsight?.source === 'youtube-most-replayed' ? (
+                  <p className="video-audience-empty">{video.audienceInsight.message}</p>
+                ) : null}
                 <div className="video-optional-ai">
                   <button
                     className="ai-analyze-button"

@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { MIN_CLIP_DURATION_MS, hasMinimumDuration } = require('./video-rules.cjs');
 
 const CANVAS = { width: 1080, height: 1920, fps: 30 };
 
@@ -118,11 +119,21 @@ function createComposition(projectId, video, clip, layoutConfig, index = 0) {
       position: 'bottom',
       displayMode: 'block',
       language: 'pt-BR',
+      positionX: 50,
+      positionY: 86,
+      maxWidthPct: 84,
+      fontSize: 42,
+      textColor: '#FFFFFF',
+      highlightColor: '#73DDBD',
+      outlineColor: '#111111',
+      outlineWidth: 2,
+      backgroundColor: '#000000',
+      backgroundOpacity: 0.6,
     },
     layout: cloneValue(layoutConfig.layout),
     aiMetadata: {
-      engine: 'GeradorClip Core',
-      model: 'geradorclip-drafts-v1',
+      engine: 'ClipCut Core',
+      model: 'clipcut-drafts-v1',
       reasons: ['Corte sugerido a partir do intervalo selecionado.'],
     },
     status: 'suggested',
@@ -142,6 +153,15 @@ function normalizeComposition(composition) {
     return composition;
   }
 
+  const rawCaptionSettings = composition.captionSettings || {};
+  const captionPosition = ['top', 'middle', 'bottom'].includes(rawCaptionSettings.position)
+    ? rawCaptionSettings.position
+    : 'bottom';
+  const captionPositionDefaults = {
+    top: { x: 50, y: 12 },
+    middle: { x: 50, y: 50 },
+    bottom: { x: 50, y: 86 },
+  }[captionPosition];
   const normalizedComposition = {
     ...composition,
     version: 2,
@@ -150,7 +170,7 @@ function normalizeComposition(composition) {
     },
     aiMetadata: {
       ...(composition.aiMetadata || {}),
-      engine: composition.aiMetadata?.engine || 'GeradorClip Core',
+      engine: composition.aiMetadata?.engine || 'ClipCut Core',
       reasons: Array.isArray(composition.aiMetadata?.reasons) ? composition.aiMetadata.reasons : [],
     },
     captionSettings: {
@@ -161,7 +181,20 @@ function normalizeComposition(composition) {
       position: 'bottom',
       displayMode: 'block',
       language: 'pt-BR',
-      ...(composition.captionSettings || {}),
+      positionX: 50,
+      positionY: 86,
+      maxWidthPct: 84,
+      fontSize: 42,
+      textColor: '#FFFFFF',
+      highlightColor: '#73DDBD',
+      outlineColor: '#111111',
+      outlineWidth: 2,
+      backgroundColor: '#000000',
+      backgroundOpacity: 0.6,
+      ...rawCaptionSettings,
+      position: captionPosition,
+      positionX: Number.isFinite(Number(rawCaptionSettings.positionX)) ? Number(rawCaptionSettings.positionX) : captionPositionDefaults.x,
+      positionY: Number.isFinite(Number(rawCaptionSettings.positionY)) ? Number(rawCaptionSettings.positionY) : captionPositionDefaults.y,
     },
   };
 
@@ -185,6 +218,10 @@ function reviewComposition(composition) {
   }
 
   for (const item of items) {
+    if (item.mediaType !== 'image' && !hasMinimumDuration(Number(item.sourceInMs) / 1000, Number(item.sourceOutMs) / 1000)) {
+      issues.push(`${item.id}: cada corte precisa ter pelo menos 1 minuto.`);
+    }
+
     const transform = item.transform || {};
     const region = regions.find((currentRegion) => currentRegion.id === item.regionId);
 
@@ -235,6 +272,16 @@ function reviewComposition(composition) {
     issues,
     checkedAt: new Date().toISOString(),
   };
+}
+
+function hasMinimumClipDuration(composition) {
+  const videoItems = (composition?.tracks || [])
+    .filter((track) => track.kind === 'video')
+    .flatMap((track) => track.items || []);
+
+  return videoItems.length > 0 && videoItems.every((item) =>
+    hasMinimumDuration(Number(item.sourceInMs) / 1000, Number(item.sourceOutMs) / 1000),
+  );
 }
 
 function createProject(video, clips, requestedLayoutConfig = null) {
@@ -362,7 +409,9 @@ function isValidComposition(composition) {
 
 module.exports = {
   CANVAS,
+  MIN_CLIP_DURATION_MS,
   createProject,
+  hasMinimumClipDuration,
   isValidComposition,
   normalizeComposition,
   normalizeLayoutConfig,

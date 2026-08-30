@@ -1,14 +1,15 @@
+import { Trash2 } from 'lucide-react';
 import { Header } from '../main/Header';
+import { EmptyState } from '../ui';
 
 export function TrashPage() {
   return (
     <main className="app-shell">
       <Header />
       <section className="workspace">
-        <div className="route-panel">
+        <div className="route-panel cc-route-page">
           <p className="eyebrow">Lixeira</p>
-          <h1>Lixeira</h1>
-          <p>Revise itens removidos antes da exclusão definitiva.</p>
+          <EmptyState icon={Trash2} title="Lixeira" description="Revise itens removidos antes da exclusao definitiva." />
         </div>
       </section>
     </main>

@@ -9,13 +9,14 @@ import {
   LogOut,
   Scissors,
   Settings,
+  Sparkles,
   Star,
   Subtitles,
   Video,
   Trash2,
 } from 'lucide-react';
-import { NavLink } from 'react-router-dom';
 
+import { SidebarItem } from '../ui';
 import './Header.css';
 
 const workflowItems = [
@@ -53,6 +54,11 @@ const workflowItems = [
 ];
 
 const utilityItems = [
+  {
+    label: 'Inteligência editorial',
+    to: '/editorial',
+    icon: Sparkles,
+  },
   {
     label: 'Biblioteca',
     to: '/biblioteca',
@@ -97,47 +103,31 @@ export function Header({}) {
             <Scissors size={20} strokeWidth={2.4} />
           </span>
 
-          <span className="brand-name">GeradorClip</span>
+          <span className="brand-name">ClipCut</span>
         </button>
 
         <nav className="nav-stack">
           <span className="nav-section-label">Fluxo de criação</span>
-          {workflowItems.map(({ label, to, icon: Icon, end }) => (
-            <NavLink
-              className={({ isActive }) =>
-                `nav-item${isActive ? ' active' : ''}`
-              }
+          {workflowItems.map(({ label, to, icon, end }) => (
+            <SidebarItem
               end={end}
+              icon={icon}
               key={label}
+              label={label}
               to={to}
-              title={label}
               onClick={() => setIsPinned(false)}
-            >
-              <span className="nav-icon">
-                <Icon size={19} strokeWidth={1.8} />
-              </span>
-
-              <span className="sidebar-label">{label}</span>
-            </NavLink>
+            />
           ))}
           <div className="nav-divider" />
           <span className="nav-section-label">Organização</span>
-          {utilityItems.map(({ label, to, icon: Icon }) => (
-            <NavLink
-              className={({ isActive }) =>
-                `nav-item${isActive ? ' active' : ''}`
-              }
+          {utilityItems.map(({ label, to, icon }) => (
+            <SidebarItem
+              icon={icon}
               key={label}
+              label={label}
               to={to}
-              title={label}
               onClick={() => setIsPinned(false)}
-            >
-              <span className="nav-icon">
-                <Icon size={19} strokeWidth={1.8} />
-              </span>
-
-              <span className="sidebar-label">{label}</span>
-            </NavLink>
+            />
           ))}
         </nav>
       </div>
@@ -151,7 +141,7 @@ export function Header({}) {
           </div>
 
           <div className="profile-copy">
-            <strong>GeradorClip</strong>
+            <strong>ClipCut</strong>
             <span>Workspace local</span>
           </div>
         </div>

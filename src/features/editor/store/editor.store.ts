@@ -1,5 +1,8 @@
 import type { CanvasPreset, CaptionSettings, Composition, Region, Track, TrackItem, Transform } from '../domain/editor.types';
 import { DEFAULT_TRANSFORM, getLayoutPreset } from '../domain/layout';
+export { MIN_CLIP_DURATION_MS } from '../../../lib/videoRules';
+import { MIN_CLIP_DURATION_MS } from '../../../lib/videoRules';
+import { DEFAULT_CAPTION_SETTINGS } from '../../../lib/captionSettings';
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -39,16 +42,6 @@ export type EditorAction =
   | { type: 'mark-saved'; composition: Composition };
 
 const MAX_HISTORY = 50;
-
-const DEFAULT_CAPTION_SETTINGS: CaptionSettings = {
-  mode: 'automatic',
-  manualText: '',
-  corrections: '',
-  font: 'inter',
-  position: 'bottom',
-  displayMode: 'block',
-  language: 'pt-BR',
-};
 
 function cloneComposition(composition: Composition): Composition {
   return JSON.parse(JSON.stringify(composition)) as Composition;
@@ -308,14 +301,22 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
   }
 
   if (action.type === 'update-caption-settings') {
+    const currentSettings = {
+      ...DEFAULT_CAPTION_SETTINGS,
+      ...(state.composition.captionSettings || {}),
+    };
+    const nextSettings = {
+      ...currentSettings,
+      ...action.settings,
+    };
+    const contentChanged = ['mode', 'manualText', 'corrections', 'language'].some(
+      (key) => currentSettings[key as keyof typeof currentSettings] !== nextSettings[key as keyof typeof nextSettings],
+    );
+
     return withLayoutEdit(state, {
       ...state.composition,
-      captionSettings: {
-        ...DEFAULT_CAPTION_SETTINGS,
-        ...(state.composition.captionSettings || {}),
-        ...action.settings,
-      },
-      captionTrack: undefined,
+      captionSettings: nextSettings,
+      captionTrack: contentChanged ? undefined : state.composition.captionTrack,
     });
   }
 
@@ -412,8 +413,12 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
 
     const item = currentItems[index];
-    const sourceInMs = Math.max(0, Math.min(action.sourceInMs, item.sourceOutMs - 100));
-    const sourceOutMs = Math.max(sourceInMs + 100, action.sourceOutMs);
+    if (item.sourceOutMs - item.sourceInMs < MIN_CLIP_DURATION_MS) {
+      return state;
+    }
+
+    const sourceInMs = Math.max(0, Math.min(action.sourceInMs, item.sourceOutMs - MIN_CLIP_DURATION_MS));
+    const sourceOutMs = Math.max(sourceInMs + MIN_CLIP_DURATION_MS, action.sourceOutMs);
     const nextItems = reflowItems(
       currentItems.map((currentItem, currentIndex) =>
         currentIndex === index ? { ...currentItem, sourceInMs, sourceOutMs } : currentItem,
@@ -432,7 +437,10 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     const item = currentItems[index];
     const localOffset = action.splitAtMs - item.timelineStartMs;
     const splitSourceMs = item.sourceInMs + localOffset;
-    if (localOffset < 100 || localOffset > item.sourceOutMs - item.sourceInMs - 100) {
+    if (
+      localOffset < MIN_CLIP_DURATION_MS ||
+      localOffset > item.sourceOutMs - item.sourceInMs - MIN_CLIP_DURATION_MS
+    ) {
       return state;
     }
 

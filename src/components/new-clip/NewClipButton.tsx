@@ -1,10 +1,10 @@
 import { ChangeEvent, DragEvent, useRef, useState } from 'react';
-import { FileVideo2, FolderOpen, Plus, Trash2, Upload, UploadCloud, X } from 'lucide-react';
+import { FileVideo2, FolderOpen, Link2, Plus, Trash2, Upload, UploadCloud, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { uploadVideo } from '../../lib/videoApi';
+import { importVideoFromUrl, uploadVideo } from '../../lib/videoApi';
+import { formatDuration, formatFileSize } from '../../lib/formatters';
+import { MAX_VIDEO_DURATION_SECONDS, MIN_CLIP_DURATION_SECONDS } from '../../lib/videoRules';
 import './NewClipButton.css';
-
-const MAX_VIDEO_DURATION_SECONDS = 10 * 60;
 
 type SelectedVideo = {
   file: File;
@@ -18,34 +18,24 @@ type NewClipButtonProps = {
   onUploaded?: () => void;
 };
 
-function formatDuration(seconds: number) {
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = Math.round(seconds % 60)
-    .toString()
-    .padStart(2, '0');
-
-  return `${minutes}:${remainingSeconds}`;
-}
-
-function formatFileSize(bytes: number) {
-  const megabytes = bytes / 1024 / 1024;
-  return `${megabytes.toFixed(1)} MB`;
-}
-
 export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState<SelectedVideo | null>(null);
+  const [sourceUrl, setSourceUrl] = useState('');
   const [error, setError] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
   function closeModal() {
     setIsOpen(false);
     setIsDragging(false);
     setError('');
     setIsSending(false);
+    setIsImporting(false);
+    setSourceUrl('');
   }
 
   function openFileManager() {
@@ -70,8 +60,13 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
     video.onloadedmetadata = () => {
       URL.revokeObjectURL(objectUrl);
 
+      if (!Number.isFinite(video.duration) || video.duration < MIN_CLIP_DURATION_SECONDS) {
+        setError('O video precisa ter pelo menos 1 minuto.');
+        return;
+      }
+
       if (video.duration > MAX_VIDEO_DURATION_SECONDS) {
-        setError('O vídeo precisa ter no máximo 10 minutos.');
+        setError('O vídeo precisa ter no máximo 1 hora.');
         return;
       }
 
@@ -135,6 +130,37 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
     }
   }
 
+  async function sendUrl() {
+    const normalizedUrl = sourceUrl.trim();
+    if (!normalizedUrl) {
+      setError('Cole um link de video antes de importar.');
+      return;
+    }
+
+    try {
+      const parsedUrl = new URL(normalizedUrl);
+      if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+        throw new Error('unsupported-protocol');
+      }
+    } catch {
+      setError('Informe um link de video valido.');
+      return;
+    }
+
+    try {
+      setIsImporting(true);
+      setError('');
+      await importVideoFromUrl(normalizedUrl);
+      closeModal();
+      onUploaded?.();
+      navigate('/arquivos');
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : 'Nao foi possivel importar o video pelo link.');
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
   return (
     <>
       <button className="primary-action" type="button" onClick={() => setIsOpen(true)}>
@@ -169,7 +195,7 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
                 <UploadCloud size={32} />
               </div>
               <h3>Arraste o vídeo aqui</h3>
-              <p>Use um arquivo de vídeo com até 10 minutos.</p>
+              <p>Use um arquivo de vídeo com até 1 hora.</p>
             </div>
 
             <div className="new-clip-actions">
@@ -179,11 +205,35 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
               </button>
             </div>
 
+            <div className="new-clip-url-import">
+              <div className="new-clip-url-heading">
+                <Link2 size={20} />
+                <div>
+                  <h3>Importar por link</h3>
+                  <p>YouTube e outros sites suportados pelo yt-dlp, com limite de 1 hora.</p>
+                </div>
+              </div>
+              <div className="new-clip-url-form">
+                <input
+                  type="url"
+                  aria-label="Link do video"
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  value={sourceUrl}
+                  onChange={(event) => setSourceUrl(event.target.value)}
+                />
+                <button className="new-clip-option" type="button" disabled={isImporting || isSending} onClick={() => void sendUrl()}>
+                  <Link2 size={17} />
+                  {isImporting ? 'Baixando...' : 'Importar link'}
+                </button>
+              </div>
+              <small>Em vídeos do YouTube, o ClipCut tenta encontrar os momentos mais assistidos e sugerir janelas de 1 minuto.</small>
+            </div>
+
             <div className="new-clip-tutorial">
               <h3>Como começar</h3>
               <ol>
                 <li>Arraste o arquivo para a área acima ou selecione pelo gerenciador.</li>
-                <li>Confirme que o vídeo tem no máximo 10 minutos.</li>
+                <li>Confirme que o vídeo tem no máximo 1 hora.</li>
                 <li>Depois do envio, o arquivo deve ser salvo em `public/videos`.</li>
               </ol>
             </div>
@@ -218,7 +268,7 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
               <button
                 className="primary-action"
                 type="button"
-                disabled={!selectedVideo || isSending}
+                disabled={!selectedVideo || isSending || isImporting}
                 onClick={sendVideo}
               >
                 <Upload size={16} />

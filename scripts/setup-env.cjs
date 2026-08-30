@@ -58,7 +58,7 @@ async function askForSecrets(values) {
     return values;
   }
 
-  console.log('\nConfiguração inicial do GeradorClip');
+  console.log('\nConfiguração inicial do ClipCut');
   console.log('Os valores ficam somente no .env local, que não é versionado.');
   console.log(`Tokens reconhecidos pelo projeto: ${tokenKeys.join(', ')}.`);
   console.log('O backend aceita qualquer um dos tokens Hugging Face abaixo; vamos salvar no campo principal.');

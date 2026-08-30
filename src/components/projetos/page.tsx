@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { listProjects } from '../../lib/videoApi';
 import type { ProjectSummary } from '../../features/editor/domain/editor.types';
 import { Header } from '../main/Header';
+import { StepIndicator } from '../ui';
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('pt-BR', {
@@ -39,6 +40,8 @@ export function ProjectsPage() {
             <ArrowRight size={16} />
           </Link>
         </div>
+
+        <StepIndicator currentStep={2} />
 
         {isLoading && <div className="route-panel">Carregando projetos...</div>}
         {error && <div className="route-panel">{error}</div>}

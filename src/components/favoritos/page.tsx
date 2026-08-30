@@ -1,14 +1,15 @@
+import { Star } from 'lucide-react';
 import { Header } from '../main/Header';
+import { EmptyState } from '../ui';
 
 export function FavoritesPage() {
   return (
     <main className="app-shell">
       <Header />
       <section className="workspace">
-        <div className="route-panel">
+        <div className="route-panel cc-route-page">
           <p className="eyebrow">Favoritos</p>
-          <h1>Favoritos</h1>
-          <p>Encontre rapidamente os clips marcados para reutilização.</p>
+          <EmptyState icon={Star} title="Favoritos" description="Encontre rapidamente os clips marcados para reutilizacao." />
         </div>
       </section>
     </main>

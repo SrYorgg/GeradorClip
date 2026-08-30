@@ -308,6 +308,13 @@ button {
   }
 }
 
+.generator-limit-note {
+  margin: -8px 0 0;
+  color: #6f7280;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .brand,
 .nav-item,
 .topbar,

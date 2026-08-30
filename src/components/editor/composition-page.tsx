@@ -38,9 +38,12 @@ import {
   getTransform,
   LAYOUT_PRESETS,
 } from '../../features/editor/domain/layout';
+import { DEFAULT_CAPTION_SETTINGS, getCaptionBackgroundColor, getCaptionSettings } from '../../lib/captionSettings';
+import { getSubtitleFont } from '../../lib/subtitleFonts';
 import {
   editorReducer,
   initialEditorState,
+  MIN_CLIP_DURATION_MS,
 } from '../../features/editor/store/editor.store';
 import './composition-page.css';
 
@@ -92,16 +95,6 @@ function getActivePreset(composition: Composition): CanvasPreset {
   )?.id || 'custom';
 }
 
-const DEFAULT_CAPTION_SETTINGS: CaptionSettings = {
-  mode: 'automatic',
-  manualText: '',
-  corrections: '',
-  font: 'inter',
-  position: 'bottom',
-  displayMode: 'block',
-  language: 'pt-BR',
-};
-
 function chunkPreviewCaptionText(value: string, maxCharacters = 36) {
   const words = value.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
   const chunks: string[] = [];
@@ -125,7 +118,7 @@ function chunkPreviewCaptionText(value: string, maxCharacters = 36) {
 }
 
 function getPreviewCaptionText(composition: Composition, sourceVideo: UploadedVideo | null, playheadMs: number) {
-  const settings = { ...DEFAULT_CAPTION_SETTINGS, ...composition.captionSettings };
+  const settings = getCaptionSettings(composition.captionSettings);
   if (settings.mode === 'none') {
     return '';
   }
@@ -232,6 +225,7 @@ export function CompositionEditorPage() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [dragPreview, setDragPreview] = useState<{ itemId: string; x: number; y: number } | null>(null);
+  const [captionPositionPreview, setCaptionPositionPreview] = useState<{ x: number; y: number } | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [isRemovingImageId, setIsRemovingImageId] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -240,6 +234,13 @@ export function CompositionEditorPage() {
   const dragRef = useRef<{
     pointerId: number;
     itemId: string;
+    startX: number;
+    startY: number;
+    initialX: number;
+    initialY: number;
+  } | null>(null);
+  const captionDragRef = useRef<{
+    pointerId: number;
     startX: number;
     startY: number;
     initialX: number;
@@ -266,6 +267,8 @@ export function CompositionEditorPage() {
 
         setProject(loadedProject);
         setSourceVideo(videos.find((video) => video.id === loadedProject.sourceVideoId) || null);
+        setCaptionPositionPreview(null);
+        captionDragRef.current = null;
         if (selectedComposition) {
           dispatch({ type: 'load', composition: selectedComposition });
         }
@@ -288,7 +291,7 @@ export function CompositionEditorPage() {
 
   const composition = state.composition;
   const captionSettings = composition
-    ? { ...DEFAULT_CAPTION_SETTINGS, ...composition.captionSettings }
+    ? getCaptionSettings(composition.captionSettings)
     : DEFAULT_CAPTION_SETTINGS;
   const items = useMemo(() => getVideoItems(composition), [composition]);
   const mediaItems = useMemo(() => getMediaItems(composition), [composition]);
@@ -323,9 +326,20 @@ export function CompositionEditorPage() {
   const previewCaptionText = composition
     ? getPreviewCaptionText(composition, sourceVideo, state.playheadMs)
     : '';
+  const captionPosition = captionPositionPreview || {
+    x: captionSettings.positionX ?? 50,
+    y: captionSettings.positionY ?? 86,
+  };
   const previewCaptionStyle: CSSProperties = {
-    top: captionSettings.position === 'top' ? '12%' : captionSettings.position === 'middle' ? '50%' : '86%',
-    transform: captionSettings.position === 'middle' ? 'translate(-50%, -50%)' : 'translateX(-50%)',
+    left: `${captionPosition.x}%`,
+    top: `${captionPosition.y}%`,
+    width: captionSettings.displayMode === 'word' ? 'auto' : `${captionSettings.maxWidthPct}%`,
+    transform: 'translate(-50%, -50%)',
+    color: captionSettings.displayMode === 'word' ? captionSettings.highlightColor : captionSettings.textColor,
+    backgroundColor: getCaptionBackgroundColor(captionSettings),
+    fontSize: `${Math.max(12, Number(captionSettings.fontSize || 42) * 0.42)}px`,
+    textShadow: `0 1px 2px ${captionSettings.outlineColor}, 0 2px 8px ${captionSettings.outlineColor}`,
+    outline: `${Math.max(0, Number(captionSettings.outlineWidth || 0)) * 0.5}px solid ${captionSettings.outlineColor}`,
   };
 
   useEffect(() => {
@@ -591,6 +605,19 @@ export function CompositionEditorPage() {
 
   function handleCanvasPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     const targetElement = event.target instanceof HTMLElement ? event.target : null;
+    if (targetElement?.closest('.composition-caption-overlay') && captionSettings.mode !== 'none') {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      captionDragRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        initialX: captionPosition.x,
+        initialY: captionPosition.y,
+      };
+      setCaptionPositionPreview(captionPosition);
+      return;
+    }
+
     const targetItemId = targetElement?.closest<HTMLElement>('[data-composition-item-id]')?.dataset.compositionItemId;
     const dragItem = visualItems.find((item) => item.id === targetItemId) || selectedItem;
 
@@ -616,6 +643,16 @@ export function CompositionEditorPage() {
   }
 
   function handleCanvasPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const captionDrag = captionDragRef.current;
+    if (captionDrag && captionDrag.pointerId === event.pointerId) {
+      const bounds = event.currentTarget.getBoundingClientRect();
+      setCaptionPositionPreview({
+        x: clamp(captionDrag.initialX + ((event.clientX - captionDrag.startX) / bounds.width) * 100, 5, 95),
+        y: clamp(captionDrag.initialY + ((event.clientY - captionDrag.startY) / bounds.height) * 100, 5, 95),
+      });
+      return;
+    }
+
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) {
       return;
@@ -630,6 +667,17 @@ export function CompositionEditorPage() {
   }
 
   function handleCanvasPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+    const captionDrag = captionDragRef.current;
+    if (captionDrag && captionDrag.pointerId === event.pointerId) {
+      const bounds = event.currentTarget.getBoundingClientRect();
+      const x = clamp(captionDrag.initialX + ((event.clientX - captionDrag.startX) / bounds.width) * 100, 5, 95);
+      const y = clamp(captionDrag.initialY + ((event.clientY - captionDrag.startY) / bounds.height) * 100, 5, 95);
+      dispatch({ type: 'update-caption-settings', settings: { positionX: x, positionY: y } });
+      captionDragRef.current = null;
+      setCaptionPositionPreview(null);
+      return;
+    }
+
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) {
       return;
@@ -829,7 +877,7 @@ export function CompositionEditorPage() {
             {captionSettings.mode !== 'none' && previewCaptionText && (
               <div
                 className={`composition-caption-overlay ${captionSettings.displayMode === 'word' ? 'word' : ''}`}
-                style={{ ...previewCaptionStyle, fontFamily: captionSettings.font || 'Inter, sans-serif' }}
+                style={{ ...previewCaptionStyle, fontFamily: getSubtitleFont(captionSettings.font || 'inter').cssFamily }}
                 aria-label="Prévia da legenda"
               >
                 {previewCaptionText}
@@ -944,7 +992,17 @@ export function CompositionEditorPage() {
                 <select
                   value={captionSettings.position}
                   disabled={captionSettings.mode === 'none'}
-                  onChange={(event) => dispatch({ type: 'update-caption-settings', settings: { position: event.target.value as CaptionSettings['position'] } })}
+                  onChange={(event) => {
+                    const position = event.target.value as CaptionSettings['position'];
+                    dispatch({
+                      type: 'update-caption-settings',
+                      settings: {
+                        position,
+                        positionX: 50,
+                        positionY: position === 'top' ? 12 : position === 'middle' ? 50 : 86,
+                      },
+                    });
+                  }}
                 >
                   <option value="top">Superior</option>
                   <option value="middle">Centro</option>
@@ -973,6 +1031,34 @@ export function CompositionEditorPage() {
                 <option value="pt-BR">Português traduzido</option>
                 <option value="original">Idioma original</option>
               </select>
+            </label>
+            <div className="inspector-fields caption-style-fields">
+              <label className="range-field">
+                <span>Tamanho <strong>{Math.round(captionSettings.fontSize || 42)} px</strong></span>
+                <input type="range" min="24" max="96" step="1" value={captionSettings.fontSize || 42} disabled={captionSettings.mode === 'none'} onChange={(event) => dispatch({ type: 'update-caption-settings', settings: { fontSize: Number(event.target.value) } })} />
+              </label>
+              <label className="range-field">
+                <span>Largura <strong>{Math.round(captionSettings.maxWidthPct || 84)}%</strong></span>
+                <input type="range" min="35" max="95" step="1" value={captionSettings.maxWidthPct || 84} disabled={captionSettings.mode === 'none'} onChange={(event) => dispatch({ type: 'update-caption-settings', settings: { maxWidthPct: Number(event.target.value) } })} />
+              </label>
+            </div>
+            <div className="inspector-inline-fields caption-color-fields">
+              <label className="color-field">
+                Texto
+                <input type="color" value={captionSettings.textColor || '#FFFFFF'} disabled={captionSettings.mode === 'none'} onChange={(event) => dispatch({ type: 'update-caption-settings', settings: { textColor: event.target.value } })} />
+              </label>
+              <label className="color-field">
+                Palavra ativa
+                <input type="color" value={captionSettings.highlightColor || '#73DDBD'} disabled={captionSettings.mode === 'none'} onChange={(event) => dispatch({ type: 'update-caption-settings', settings: { highlightColor: event.target.value } })} />
+              </label>
+              <label className="color-field">
+                Fundo
+                <input type="color" value={captionSettings.backgroundColor || '#000000'} disabled={captionSettings.mode === 'none'} onChange={(event) => dispatch({ type: 'update-caption-settings', settings: { backgroundColor: event.target.value } })} />
+              </label>
+            </div>
+            <label className="range-field">
+              <span>Opacidade do fundo <strong>{Math.round(Number(captionSettings.backgroundOpacity || 0) * 100)}%</strong></span>
+              <input type="range" min="0" max="1" step="0.05" value={captionSettings.backgroundOpacity ?? 0.6} disabled={captionSettings.mode === 'none'} onChange={(event) => dispatch({ type: 'update-caption-settings', settings: { backgroundOpacity: Number(event.target.value) } })} />
             </label>
             <p className="inspector-muted">
               A legenda é preparada ao salvar este layout, antes da geração dos cortes, e sempre fica acima das imagens.
@@ -1029,14 +1115,14 @@ export function CompositionEditorPage() {
                 <div className="inspector-fields">
                   <label>
                     Inicio (s)
-                    <input type="number" min="0" step="0.1" value={(selectedItem.sourceInMs / 1000).toFixed(1)} onChange={(event) => updateTrim('start', event.target.value)} />
+                    <input type="number" min="0" max={Math.max(0, (selectedItem.sourceOutMs - MIN_CLIP_DURATION_MS) / 1000)} step="0.1" value={(selectedItem.sourceInMs / 1000).toFixed(1)} onChange={(event) => updateTrim('start', event.target.value)} />
                   </label>
                   <label>
                     Fim (s)
-                    <input type="number" min="0.1" step="0.1" value={(selectedItem.sourceOutMs / 1000).toFixed(1)} onChange={(event) => updateTrim('end', event.target.value)} />
+                    <input type="number" min={(selectedItem.sourceInMs + MIN_CLIP_DURATION_MS) / 1000} step="0.1" value={(selectedItem.sourceOutMs / 1000).toFixed(1)} onChange={(event) => updateTrim('end', event.target.value)} />
                   </label>
                 </div>
-                <p className="inspector-muted">Precisao de 100 ms · {formatTime(getItemDuration(selectedItem))}</p>
+                <p className="inspector-muted">Cada segmento precisa ter pelo menos 1 minuto · {formatTime(getItemDuration(selectedItem))}</p>
               </div>}
 
               <div className="inspector-section">
@@ -1107,7 +1193,11 @@ export function CompositionEditorPage() {
 
               {selectedItem.mediaType !== 'image' && <div className="inspector-section inspector-actions">
                 <span className="inspector-label">Comandos reversiveis</span>
-                <button type="button" onClick={() => dispatch({ type: 'split-item', itemId: selectedItem.id, splitAtMs: state.playheadMs })}>
+                <button
+                  type="button"
+                  disabled={getItemDuration(selectedItem) < MIN_CLIP_DURATION_MS * 2}
+                  onClick={() => dispatch({ type: 'split-item', itemId: selectedItem.id, splitAtMs: state.playheadMs })}
+                >
                   <Scissors size={15} />
                   Dividir no playhead
                 </button>

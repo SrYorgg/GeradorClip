@@ -1,14 +1,15 @@
+import { Settings } from 'lucide-react';
 import { Header } from '../main/Header';
+import { EmptyState } from '../ui';
 
 export function SettingsPage() {
   return (
     <main className="app-shell">
       <Header />
       <section className="workspace">
-        <div className="route-panel">
+        <div className="route-panel cc-route-page">
           <p className="eyebrow">Ajustes</p>
-          <h1>Ajustes</h1>
-          <p>Configure formatos, presets e preferências do projeto.</p>
+          <EmptyState icon={Settings} title="Ajustes" description="Configure formatos, presets e preferencias do projeto." />
         </div>
       </section>
     </main>

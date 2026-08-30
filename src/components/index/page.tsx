@@ -21,40 +21,20 @@ import {
   UploadedVideo,
 } from '../../lib/videoApi';
 import { subtitleFonts } from '../../lib/subtitleFonts';
+import { formatDuration, formatMinutes } from '../../lib/formatters';
+import {
+  getMaxClipCount,
+  MIN_CLIP_COUNT,
+  MIN_CLIP_DURATION_SECONDS,
+} from '../../lib/videoRules';
 import { Header } from '../main/Header';
 import { useNavigate } from 'react-router-dom';
-
-const MIN_CLIP_DURATION_SECONDS = 5;
-const MAX_CLIP_DURATION_SECONDS = 600;
-const MIN_CLIP_COUNT = 1;
-const MAX_CLIP_COUNT = 50;
-
-function formatDuration(seconds: number) {
-  if (!Number.isFinite(seconds) || seconds <= 0) {
-    return '0:00';
-  }
-
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = Math.round(seconds % 60)
-    .toString()
-    .padStart(2, '0');
-
-  return `${minutes}:${remainingSeconds}`;
-}
-
-function formatMinutes(seconds: number) {
-  if (!Number.isFinite(seconds) || seconds <= 0) {
-    return '0 min';
-  }
-
-  return `${Math.max(1, Math.round(seconds / 60))} min`;
-}
 
 export function IndexPage() {
   const [videos, setVideos] = useState<UploadedVideo[]>([]);
   const [selectedVideoId, setSelectedVideoId] = useState('');
   const [selectedClipIds, setSelectedClipIds] = useState<string[]>([]);
-  const [cutMode, setCutMode] = useState<'duration' | 'count'>('count');
+  const [cutMode, setCutMode] = useState<'duration' | 'count' | 'recommended'>('count');
   const [targetClipDurationSeconds, setTargetClipDurationSeconds] = useState(60);
   const [targetClipCount, setTargetClipCount] = useState(5);
   const [subtitleMode, setSubtitleMode] = useState<'none' | 'automatic' | 'manual'>('automatic');
@@ -90,6 +70,12 @@ export function IndexPage() {
   const selectedClips = clips.filter((clip) => selectedClipIds.includes(clip.id));
 
   useEffect(() => {
+    if (cutMode === 'recommended' && !(selectedVideo?.audienceRecommendations?.length || 0)) {
+      setCutMode('count');
+    }
+  }, [cutMode, selectedVideo]);
+
+  useEffect(() => {
     const availableClipIds = clips.map((clip) => clip.id);
     setSelectedClipIds((currentIds) => {
       const filteredIds = currentIds.filter((id) => availableClipIds.includes(id));
@@ -97,20 +83,34 @@ export function IndexPage() {
     });
   }, [selectedVideoId, clips]);
 
+  const maxClipCount = Math.max(MIN_CLIP_COUNT, getMaxClipCount(Number(selectedVideo?.durationSeconds || 0)));
+  const maxClipDurationSeconds = Math.max(
+    MIN_CLIP_DURATION_SECONDS,
+    Math.floor(Number(selectedVideo?.durationSeconds || MIN_CLIP_DURATION_SECONDS)),
+  );
   const safeTargetClipDurationSeconds = Math.min(
-    MAX_CLIP_DURATION_SECONDS,
+    maxClipDurationSeconds,
     Math.max(MIN_CLIP_DURATION_SECONDS, Math.round(targetClipDurationSeconds || 0)),
   );
   const safeTargetClipCount = Math.min(
-    MAX_CLIP_COUNT,
+    maxClipCount,
     Math.max(MIN_CLIP_COUNT, Math.round(targetClipCount || 0)),
   );
   const generateButtonLabel =
-    cutMode === 'count' ? `Criar ${safeTargetClipCount} rascunhos` : 'Criar rascunhos';
+    cutMode === 'count'
+      ? `Criar ${safeTargetClipCount} rascunhos`
+      : cutMode === 'recommended'
+        ? 'Criar momentos recomendados'
+        : 'Criar rascunhos';
 
   async function createClips() {
     if (!selectedVideo) {
       setMessage('Selecione um video salvo em Arquivos antes de gerar os clipes.');
+      return;
+    }
+
+    if (selectedVideo.durationSeconds < MIN_CLIP_DURATION_SECONDS) {
+      setMessage('O video precisa ter pelo menos 1 minuto para gerar cortes.');
       return;
     }
 
@@ -127,8 +127,8 @@ export function IndexPage() {
       );
       setSelectedClipIds(generatedClips.map((clip) => clip.id));
       setMessage('Rascunhos criados. Abra um corte no Editor antes de exportar.');
-    } catch {
-      setMessage('Nao foi possivel gerar os clipes.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Nao foi possivel gerar os clipes.');
     } finally {
       setIsGenerating(false);
     }
@@ -172,7 +172,7 @@ export function IndexPage() {
     try {
       setIsExporting(true);
       setMessage('');
-      await exportClipsToGallery({
+      const exportJob = await exportClipsToGallery({
         videoId: selectedVideo.id,
         clipIds: selectedClipIds,
         subtitleMode,
@@ -184,7 +184,8 @@ export function IndexPage() {
         subtitleLanguage,
         audioMode: 'Audio original',
       });
-      setMessage('Pacote legendado exportado para a Galeria.');
+      setMessage('Exportacao adicionada a fila.');
+      navigate(`/galeria?jobId=${exportJob.id}`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Nao foi possivel exportar o pacote.');
     } finally {
@@ -291,40 +292,52 @@ export function IndexPage() {
                 <select
                   aria-label="Modo de corte"
                   value={cutMode}
-                  onChange={(event) => setCutMode(event.target.value as 'duration' | 'count')}
+          onChange={(event) => setCutMode(event.target.value as 'duration' | 'count' | 'recommended')}
                 >
                   <option value="duration">Duracao por corte</option>
                   <option value="count">Quantidade de cortes</option>
+                  {selectedVideo?.audienceRecommendations?.length ? <option value="recommended">Momentos mais assistidos</option> : null}
                 </select>
               </label>
-              {cutMode === 'duration' ? (
+            {cutMode === 'duration' ? (
                 <label className="setting-control">
-                  <span>Duracao de cada corte</span>
+                  <span>Duracao minima de cada corte</span>
                   <input
                     aria-label="Duracao de cada corte em segundos"
                     min={MIN_CLIP_DURATION_SECONDS}
-                    max={MAX_CLIP_DURATION_SECONDS}
+                    max={maxClipDurationSeconds}
                     step={5}
                     type="number"
-                    value={targetClipDurationSeconds}
+                    value={safeTargetClipDurationSeconds}
                     onChange={(event) => setTargetClipDurationSeconds(Number(event.target.value))}
                   />
                 </label>
-              ) : (
+              ) : cutMode === 'count' ? (
                 <label className="setting-control">
                   <span>Quantidade de cortes</span>
                   <input
                     aria-label="Quantidade de cortes"
                     min={MIN_CLIP_COUNT}
-                    max={MAX_CLIP_COUNT}
+                    max={maxClipCount}
                     step={1}
                     type="number"
-                    value={targetClipCount}
+                    value={safeTargetClipCount}
                     onChange={(event) => setTargetClipCount(Number(event.target.value))}
                   />
                 </label>
+              ) : (
+                <div className="setting-control setting-control-recommendation">
+                  <span>Recomendacao do YouTube</span>
+                  <strong>{selectedVideo?.audienceRecommendations?.length || 0} janela(s) de 1 minuto</strong>
+                </div>
               )}
             </div>
+
+            <p className="generator-limit-note">
+              {cutMode === 'recommended'
+                ? 'As janelas foram escolhidas a partir dos momentos mais assistidos disponíveis no YouTube.'
+                : `Cada corte terá no mínimo 1 minuto. Este vídeo permite até ${Math.floor(Number(selectedVideo?.durationSeconds || 0) / MIN_CLIP_DURATION_SECONDS)} corte(s) sem ultrapassar o tempo disponível.`}
+            </p>
 
             <button className="generate-button" disabled={!selectedVideo || isGenerating} onClick={createClips}>
               <Wand2 size={20} />

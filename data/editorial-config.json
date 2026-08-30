@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "ai": {
+    "enabled": false,
+    "provider": "ollama",
+    "baseUrl": "http://localhost:11434",
+    "model": "llama3.2:1b",
+    "timeoutMs": 10000,
+    "maxTranscriptChars": 6000,
+    "temperature": 0
+  },
+  "brand": {
+    "name": "ClipCut",
+    "tone": "Direto, claro e humano.",
+    "entries": []
+  },
+  "evaluation": {
+    "activeSetId": "editorial-baseline-v1",
+    "sets": [
+      {
+        "id": "editorial-baseline-v1",
+        "version": "1.0.0",
+        "name": "Baseline heurístico",
+        "cases": [
+          {
+            "id": "clear-short-hook",
+            "label": "Trecho curto com fala e gancho identificável",
+            "expectedScore": {
+              "min": 65,
+              "max": 100
+            }
+          },
+          {
+            "id": "long-low-signal",
+            "label": "Trecho longo sem fala detectada",
+            "expectedScore": {
+              "min": 0,
+              "max": 60
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

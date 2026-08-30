@@ -1,12 +1,26 @@
 const cors = require('cors');
 const crypto = require('crypto');
-const { spawn, spawnSync } = require('child_process');
+const { spawn } = require('child_process');
 const express = require('express');
 const fs = require('fs');
 const multer = require('multer');
 const os = require('os');
 const path = require('path');
-const { createProject, isValidComposition, normalizeComposition, reviewComposition } = require('./composition.cjs');
+const {
+  createProject,
+  hasMinimumClipDuration,
+  isValidComposition,
+  normalizeComposition,
+  reviewComposition,
+} = require('./composition.cjs');
+const { createEditorialService } = require('./editorial.cjs');
+const { buildSuggestedClips } = require('./clip-rules.cjs');
+const {
+  MAX_VIDEO_DURATION_SECONDS,
+  MIN_CLIP_DURATION_SECONDS,
+  getMaxClipCount,
+  hasMinimumDuration,
+} = require('./video-rules.cjs');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 
@@ -56,6 +70,8 @@ const DATA_DIR = path.join(ROOT_DIR, 'data');
 const PROJECTS_DIR = path.join(DATA_DIR, 'projects');
 const MANIFEST_PATH = path.join(VIDEOS_DIR, 'manifest.json');
 const GALLERY_MANIFEST_PATH = path.join(GALLERY_DIR, 'manifest.json');
+const EXPORT_JOBS_PATH = path.join(DATA_DIR, 'export-jobs.json');
+const EXPORT_JOB_CONCURRENCY = Math.min(8, Math.max(1, Number(process.env.EXPORT_JOB_CONCURRENCY || 2)));
 const AI_DIR = path.join(ROOT_DIR, 'ai');
 const DEFAULT_PYTHON_BIN = path.join(ROOT_DIR, '.venv', 'Scripts', 'python.exe');
 const configuredPythonBin = process.env.PYTHON_BIN;
@@ -69,6 +85,8 @@ fs.mkdirSync(GALLERY_DIR, { recursive: true });
 fs.mkdirSync(PROJECT_ASSETS_DIR, { recursive: true });
 fs.mkdirSync(PROJECTS_DIR, { recursive: true });
 fs.mkdirSync(MATPLOTLIB_CACHE_DIR, { recursive: true });
+
+const editorialService = createEditorialService({ dataDir: DATA_DIR });
 
 function readJsonFile(filePath, fallback) {
   if (!fs.existsSync(filePath)) {
@@ -116,6 +134,49 @@ function writeGalleryManifest(packages) {
   writeJsonFile(GALLERY_MANIFEST_PATH, packages);
 }
 
+function writeJsonFileAtomic(filePath, data) {
+  const temporaryPath = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  fs.writeFileSync(temporaryPath, JSON.stringify(data, null, 2));
+  fs.renameSync(temporaryPath, filePath);
+}
+
+function readExportJobs() {
+  return readJsonArray(EXPORT_JOBS_PATH);
+}
+
+function writeExportJobs(jobs) {
+  writeJsonFileAtomic(EXPORT_JOBS_PATH, jobs);
+}
+
+function getExportJob(jobId) {
+  return readExportJobs().find((job) => job.id === jobId) || null;
+}
+
+function updateExportJob(jobId, updater) {
+  const jobs = readExportJobs();
+  const jobIndex = jobs.findIndex((job) => job.id === jobId);
+  if (jobIndex === -1) {
+    return null;
+  }
+
+  const updatedJob = updater(cloneJson(jobs[jobIndex]));
+  if (!updatedJob) {
+    return null;
+  }
+
+  jobs[jobIndex] = updatedJob;
+  writeExportJobs(jobs);
+  return updatedJob;
+}
+
+function publicExportJob(job) {
+  const { clipSnapshots, compositionSnapshots, ...safeJob } = job;
+  return {
+    ...safeJob,
+    clipResults: (job.clipResults || []).map(({ outputPath, ...clipResult }) => clipResult),
+  };
+}
+
 function getVideoById(id) {
   const videos = readManifest();
   const video = videos.find((item) => item.id === id);
@@ -123,10 +184,10 @@ function getVideoById(id) {
 }
 
 function getSafeVideoPath(fileName) {
-  const videoPath = path.join(VIDEOS_DIR, fileName);
-  const resolvedVideoPath = path.resolve(videoPath);
+  const videoRoot = path.resolve(VIDEOS_DIR);
+  const resolvedVideoPath = path.resolve(videoRoot, String(fileName || ''));
 
-  if (!resolvedVideoPath.startsWith(VIDEOS_DIR)) {
+  if (resolvedVideoPath !== videoRoot && !resolvedVideoPath.startsWith(`${videoRoot}${path.sep}`)) {
     throw new Error('INVALID_VIDEO_PATH');
   }
 
@@ -146,10 +207,10 @@ function getSafeProjectAssetPath(fileName) {
 }
 
 function getSafeGalleryPath(folderName) {
-  const galleryPath = path.join(GALLERY_DIR, folderName);
-  const resolvedGalleryPath = path.resolve(galleryPath);
+  const galleryRoot = path.resolve(GALLERY_DIR);
+  const resolvedGalleryPath = path.resolve(galleryRoot, String(folderName || ''));
 
-  if (!resolvedGalleryPath.startsWith(GALLERY_DIR)) {
+  if (resolvedGalleryPath !== galleryRoot && !resolvedGalleryPath.startsWith(`${galleryRoot}${path.sep}`)) {
     throw new Error('INVALID_GALLERY_PATH');
   }
 
@@ -267,20 +328,14 @@ function sanitizeFileName(fileName) {
     .replace(/^-|-$/g, '');
 }
 
-function formatClipTime(seconds) {
-  const minutes = Math.floor(seconds / 60)
-    .toString()
-    .padStart(2, '0');
-  const remainingSeconds = Math.floor(seconds % 60)
-    .toString()
-    .padStart(2, '0');
-
-  return `${minutes}:${remainingSeconds}`;
-}
-
 function findExecutable(name, envName) {
-  if (process.env[envName] && fs.existsSync(process.env[envName])) {
-    return process.env[envName];
+  if (process.env[envName]) {
+    const configuredPath = path.isAbsolute(process.env[envName])
+      ? process.env[envName]
+      : path.resolve(ROOT_DIR, process.env[envName]);
+    if (fs.existsSync(configuredPath)) {
+      return configuredPath;
+    }
   }
 
   const pathEntries = (process.env.PATH || '').split(path.delimiter);
@@ -360,19 +415,6 @@ function getSubtitleAlignment(position) {
   return SUBTITLE_ALIGNMENTS[position] || SUBTITLE_ALIGNMENTS.bottom;
 }
 
-function formatSrtTimestamp(seconds) {
-  const totalMilliseconds = Math.max(Math.round(Number(seconds || 0) * 1000), 0);
-  const hours = Math.floor(totalMilliseconds / 3600000);
-  const minutes = Math.floor((totalMilliseconds % 3600000) / 60000);
-  const wholeSeconds = Math.floor((totalMilliseconds % 60000) / 1000);
-  const milliseconds = totalMilliseconds % 1000;
-
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(wholeSeconds).padStart(
-    2,
-    '0',
-  )},${String(milliseconds).padStart(3, '0')}`;
-}
-
 function chunkSubtitleText(text, maxCharacters = 72) {
   const words = String(text || '')
     .replace(/\s+/g, ' ')
@@ -415,20 +457,6 @@ function splitSubtitleEntries(entries, maxCharacters = 36) {
       text,
     }));
   });
-}
-
-function writeSrtFile(filePath, entries) {
-  const content = entries
-    .map((entry, index) =>
-      [
-        String(index + 1),
-        `${formatSrtTimestamp(entry.start)} --> ${formatSrtTimestamp(entry.end)}`,
-        entry.text,
-      ].join('\n'),
-    )
-    .join('\n\n');
-
-  fs.writeFileSync(filePath, `${content}\n`, 'utf8');
 }
 
 function escapeRegExp(value) {
@@ -596,29 +624,66 @@ function getManualSubtitleWordEntries(clip, manualSubtitleText) {
 }
 
 function normalizeCaptionSettings(settings = {}) {
+  settings = settings || {};
+  const position = ['top', 'middle', 'bottom'].includes(settings.position) ? settings.position : 'bottom';
+  const positionDefaults = {
+    top: { x: 50, y: 12 },
+    middle: { x: 50, y: 50 },
+    bottom: { x: 50, y: 86 },
+  }[position];
+  const getNumber = (value, fallback, minimum, maximum) => {
+    const numericValue = Number(value);
+    return Number.isFinite(numericValue)
+      ? Math.min(maximum, Math.max(minimum, numericValue))
+      : fallback;
+  };
+  const getColor = (value, fallback) => /^#[0-9a-f]{6}$/i.test(String(value || '')) ? String(value) : fallback;
+
   return {
     mode: ['none', 'automatic', 'manual'].includes(settings.mode) ? settings.mode : 'automatic',
     manualText: String(settings.manualText || ''),
     corrections: String(settings.corrections || ''),
     font: String(settings.font || 'inter'),
-    position: ['top', 'middle', 'bottom'].includes(settings.position) ? settings.position : 'bottom',
+    position,
     displayMode: ['block', 'word'].includes(settings.displayMode) ? settings.displayMode : 'block',
     language: ['original', 'pt-BR'].includes(settings.language) ? settings.language : 'pt-BR',
+    positionX: getNumber(settings.positionX, positionDefaults.x, 5, 95),
+    positionY: getNumber(settings.positionY, positionDefaults.y, 5, 95),
+    maxWidthPct: getNumber(settings.maxWidthPct, 84, 25, 95),
+    fontSize: getNumber(settings.fontSize, 42, 18, 120),
+    textColor: getColor(settings.textColor, '#FFFFFF'),
+    highlightColor: getColor(settings.highlightColor, '#73DDBD'),
+    outlineColor: getColor(settings.outlineColor, '#111111'),
+    outlineWidth: getNumber(settings.outlineWidth, 2, 0, 12),
+    backgroundColor: getColor(settings.backgroundColor, '#000000'),
+    backgroundOpacity: getNumber(settings.backgroundOpacity, 0.6, 0, 1),
   };
 }
 
-function getCaptionPlacement(position) {
-  const normalizedPosition = position === 'top' || position === 'middle' ? position : 'bottom';
+function getCaptionContentFingerprint(settings) {
+  const normalizedSettings = normalizeCaptionSettings(settings);
+  return JSON.stringify({
+    mode: normalizedSettings.mode,
+    manualText: normalizedSettings.manualText,
+    corrections: normalizedSettings.corrections,
+    language: normalizedSettings.language,
+  });
+}
+
+function getCaptionPlacement(settings = {}) {
+  const normalizedSettings = normalizeCaptionSettings(settings);
+  const normalizedPosition = normalizedSettings.position;
   const values = {
-    top: { anchor: 'top', xPct: 50, yPct: 12 },
-    middle: { anchor: 'center', xPct: 50, yPct: 50 },
-    bottom: { anchor: 'bottom', xPct: 50, yPct: 86 },
+    top: 'top',
+    middle: 'center',
+    bottom: 'bottom',
   };
-  const selected = values[normalizedPosition];
 
   return {
-    ...selected,
-    maxWidthPct: 84,
+    anchor: values[normalizedPosition],
+    xPct: normalizedSettings.positionX,
+    yPct: normalizedSettings.positionY,
+    maxWidthPct: normalizedSettings.maxWidthPct,
     safeArea: true,
   };
 }
@@ -641,7 +706,7 @@ function buildCaptionTrack(entries, wordEntries, settings, language) {
       endMs: Math.max(0, Math.round(Number(entry.end || 0) * 1000)),
       ...(Number.isFinite(Number(entry.confidence)) ? { confidence: Number(entry.confidence) } : {}),
     })).filter((entry) => entry.text && entry.endMs > entry.startMs),
-    placement: getCaptionPlacement(settings.position),
+    placement: getCaptionPlacement(settings),
     displayMode: settings.displayMode,
     language,
   };
@@ -674,6 +739,21 @@ function getCaptionWordEntries(captionTrack) {
       confidence: word.confidence,
     }))
     .filter((word) => Number.isFinite(word.start) && Number.isFinite(word.end) && word.end > word.start && word.text);
+}
+
+function getCaptionEntriesForDisplay(captionTrack, displayMode) {
+  if (displayMode !== 'word') {
+    return getCaptionCueEntries(captionTrack);
+  }
+
+  const words = getCaptionWordEntries(captionTrack);
+  if (words.length > 0) {
+    return words;
+  }
+
+  return getCaptionCueEntries(captionTrack).flatMap((entry) =>
+    buildFallbackTranscriptWords(entry.text, entry.start, entry.end),
+  );
 }
 
 function sliceCaptionTrack(captionTrack, clip) {
@@ -805,19 +885,39 @@ function groupSubtitleWords(entries, maxWords = 6, maxCharacters = 36) {
   return groups;
 }
 
-function writeAssFile(filePath, entries, fontName, position, canvasWidth = 1080, canvasHeight = 1920) {
-  const alignment = getSubtitleAlignment(position);
-  const groups = groupSubtitleWords(entries);
-  const dialogue = groups.map((group) => {
-    const text = group
-      .map((entry) => {
-        const duration = Math.max(Math.round((Number(entry.end) - Number(entry.start)) * 100), 1);
-        return `{\\kf${duration}}${escapeAssText(entry.text)}`;
-      })
-      .join(' ');
+function toAssColor(value, fallback, alpha = 0) {
+  const color = /^#[0-9a-f]{6}$/i.test(String(value || '')) ? String(value).slice(1) : fallback.slice(1);
+  const red = color.slice(0, 2);
+  const green = color.slice(2, 4);
+  const blue = color.slice(4, 6);
+  const alphaHex = Math.round(Math.min(1, Math.max(0, Number(alpha))) * 255).toString(16).padStart(2, '0').toUpperCase();
+  return `&H${alphaHex}${blue}${green}${red}`;
+}
 
-    return `Dialogue: 0,${formatAssTimestamp(group[0].start)},${formatAssTimestamp(group[group.length - 1].end)},Default,,0,0,0,,${text}`;
+function writeAssFile(filePath, entries, fontName, position, canvasWidth = 1080, canvasHeight = 1920, captionStyle = {}, displayMode = 'word') {
+  const normalizedStyle = normalizeCaptionSettings({ ...captionStyle, position: captionStyle.position || position });
+  const isWordMode = displayMode === 'word';
+  const groups = isWordMode ? groupSubtitleWords(entries) : entries.map((entry) => [entry]);
+  const positionTag = `{\\an5\\pos(${Math.round(canvasWidth * normalizedStyle.positionX / 100)},${Math.round(canvasHeight * normalizedStyle.positionY / 100)})}`;
+  const dialogue = groups.map((group) => {
+    const text = isWordMode
+      ? group
+        .map((entry) => {
+          const duration = Math.max(Math.round((Number(entry.end) - Number(entry.start)) * 100), 1);
+          return `{\\kf${duration}}${escapeAssText(entry.text)}`;
+        })
+        .join(' ')
+      : escapeAssText(group[0].text);
+    const dialogueText = `${positionTag}${text}`;
+
+    return `Dialogue: 0,${formatAssTimestamp(group[0].start)},${formatAssTimestamp(group[group.length - 1].end)},Default,,0,0,0,,${dialogueText}`;
   });
+  const textColor = toAssColor(normalizedStyle.textColor, '#FFFFFF');
+  const highlightColor = toAssColor(normalizedStyle.highlightColor, '#73DDBD');
+  const primaryColor = isWordMode ? highlightColor : textColor;
+  const secondaryColor = isWordMode ? textColor : highlightColor;
+  const outlineColor = toAssColor(normalizedStyle.outlineColor, '#111111');
+  const backgroundColor = toAssColor(normalizedStyle.backgroundColor, '#000000', 1 - normalizedStyle.backgroundOpacity);
   const content = [
     '[Script Info]',
     'ScriptType: v4.00+',
@@ -827,7 +927,7 @@ function writeAssFile(filePath, entries, fontName, position, canvasWidth = 1080,
     '',
     '[V4+ Styles]',
     'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, TertiaryColour, BackColour, Bold, Italic, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, AlphaLevel, Encoding',
-    `Style: Default,${fontName || 'Arial'},${SUBTITLE_FONT_SIZE},&H00FFFFFF,&H00A8A8A8,&H00000000,&H90000000,0,0,1,2,0,${alignment},72,72,60,0,1`,
+    `Style: Default,${fontName || 'Arial'},${Math.round(normalizedStyle.fontSize)},${primaryColor},${secondaryColor},${outlineColor},${backgroundColor},0,0,3,${Math.round(normalizedStyle.outlineWidth)},0,5,40,40,40,0,1`,
     '',
     '[Events]',
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
@@ -844,15 +944,14 @@ async function createSubtitleFile(packagePath, folderName, clipBaseName, video, 
   }
 
   if (options.captionTrack?.cues?.length || options.captionTrack?.words?.length) {
-    const persistedEntries = options.subtitleDisplayMode === 'word'
-      ? getCaptionWordEntries(options.captionTrack)
-      : getCaptionCueEntries(options.captionTrack);
+    const persistedEntries = getCaptionEntriesForDisplay(options.captionTrack, options.subtitleDisplayMode);
     return createSubtitleFileFromEntries(packagePath, folderName, clipBaseName, persistedEntries, [], {
       displayMode: options.subtitleDisplayMode,
       fontName: options.subtitleFontName,
       position: options.subtitlePosition,
       canvasWidth: options.canvasWidth,
       canvasHeight: options.canvasHeight,
+      captionSettings: options.captionSettings,
     });
   }
 
@@ -885,6 +984,7 @@ async function createSubtitleFile(packagePath, folderName, clipBaseName, video, 
     position: options.subtitlePosition,
     canvasWidth: options.canvasWidth,
     canvasHeight: options.canvasHeight,
+    captionSettings: options.captionSettings,
   });
 }
 
@@ -896,13 +996,18 @@ function createSubtitleFileFromEntries(packagePath, folderName, clipBaseName, en
   }
 
   const isWordMode = options.displayMode === 'word';
-  const fileName = `${clipBaseName}.${isWordMode ? 'ass' : 'srt'}`;
+  const fileName = `${clipBaseName}.ass`;
   const filePath = path.join(packagePath, fileName);
-  if (isWordMode) {
-    writeAssFile(filePath, correctedEntries, options.fontName, options.position, options.canvasWidth, options.canvasHeight);
-  } else {
-    writeSrtFile(filePath, correctedEntries);
-  }
+  writeAssFile(
+    filePath,
+    correctedEntries,
+    options.fontName,
+    options.position,
+    options.canvasWidth,
+    options.canvasHeight,
+    options.captionSettings,
+    isWordMode ? 'word' : 'block',
+  );
 
   return {
     fileName,
@@ -981,7 +1086,7 @@ async function translateSubtitleEntries(entries, targetLanguage, sourceLanguage 
     return { ok: true, entries };
   }
 
-  const translationDir = fs.mkdtempSync(path.join(os.tmpdir(), 'geradorclip-translation-'));
+  const translationDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clipcut-translation-'));
   const inputPath = path.join(translationDir, 'entries.json');
   fs.writeFileSync(inputPath, JSON.stringify(entries), 'utf8');
 
@@ -1014,9 +1119,7 @@ async function translateSubtitleEntries(entries, targetLanguage, sourceLanguage 
 async function createAutomaticSubtitleFile(packagePath, folderName, clipBaseName, transcript, clip, corrections, options = {}) {
   const persistedCaptionTrack = options.captionTrack;
   if (persistedCaptionTrack?.cues?.length || persistedCaptionTrack?.words?.length) {
-    const persistedEntries = options.displayMode === 'word'
-      ? getCaptionWordEntries(persistedCaptionTrack)
-      : getCaptionCueEntries(persistedCaptionTrack);
+    const persistedEntries = getCaptionEntriesForDisplay(persistedCaptionTrack, options.displayMode);
     return createSubtitleFileFromEntries(packagePath, folderName, clipBaseName, persistedEntries, [], options);
   }
 
@@ -1064,24 +1167,25 @@ function escapeSubtitleFilterPath(filePath) {
   return filePath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
 }
 
-function buildSubtitleFilter(subtitlePath, fontName, position, canvasWidth = 1080, canvasHeight = 1920) {
+function buildSubtitleFilter(subtitlePath, fontName, position, canvasWidth = 1080, canvasHeight = 1920, captionSettings = {}) {
   if (path.extname(subtitlePath).toLowerCase() === '.ass') {
     return `ass='${escapeSubtitleFilterPath(subtitlePath)}'`;
   }
 
-  const alignment = getSubtitleAlignment(position);
+  const normalizedStyle = normalizeCaptionSettings({ ...captionSettings, position: captionSettings.position || position });
+  const alignment = getSubtitleAlignment(normalizedStyle.position);
   const style = [
     `FontName=${fontName}`,
-    `FontSize=${SUBTITLE_FONT_SIZE}`,
-    'PrimaryColour=&H00FFFFFF',
-    'OutlineColour=&H90000000',
-    'BorderStyle=1',
-    'Outline=2',
+    `FontSize=${Math.round(normalizedStyle.fontSize)}`,
+    `PrimaryColour=${toAssColor(normalizedStyle.textColor, '#FFFFFF')}`,
+    `OutlineColour=${toAssColor(normalizedStyle.outlineColor, '#111111')}`,
+    'BorderStyle=3',
+    `Outline=${Math.round(normalizedStyle.outlineWidth)}`,
     'Shadow=0',
     `Alignment=${alignment}`,
-    'MarginV=60',
-    'MarginL=72',
-    'MarginR=72',
+    `MarginV=${Math.round(canvasHeight * (100 - normalizedStyle.positionY) / 100)}`,
+    `MarginL=${Math.round(canvasWidth * normalizedStyle.positionX / 100)}`,
+    `MarginR=${Math.round(canvasWidth * (100 - normalizedStyle.positionX) / 100)}`,
   ].join(',');
 
   return `subtitles='${escapeSubtitleFilterPath(subtitlePath)}':original_size=${canvasWidth}x${canvasHeight}:force_style='${style}'`;
@@ -1196,7 +1300,7 @@ function buildCompositionRender(composition, project, durationSeconds, subtitleO
 
   let outputLabel = currentLabel;
   if (subtitleOptions?.subtitlePath) {
-    filters.push(`[${currentLabel}]${buildSubtitleFilter(subtitleOptions.subtitlePath, subtitleOptions.fontName, subtitleOptions.position, canvasWidth, canvasHeight)}[captioned]`);
+    filters.push(`[${currentLabel}]${buildSubtitleFilter(subtitleOptions.subtitlePath, subtitleOptions.fontName, subtitleOptions.position, canvasWidth, canvasHeight, subtitleOptions.captionSettings)}[captioned]`);
     outputLabel = 'captioned';
   }
 
@@ -1207,12 +1311,19 @@ function buildCompositionRender(composition, project, durationSeconds, subtitleO
   };
 }
 
-function exportClipWithFfmpeg(sourcePath, targetPath, clip, subtitleOptions = null, composition = null, project = null) {
+function exportClipWithFfmpeg(
+  sourcePath,
+  targetPath,
+  clip,
+  subtitleOptions = null,
+  composition = null,
+  project = null,
+  shouldCancel = () => false,
+) {
   const ffmpegBin = findExecutable('ffmpeg', 'FFMPEG_BIN');
 
   if (!ffmpegBin) {
-    fs.copyFileSync(sourcePath, targetPath);
-    return { ok: false, mode: 'copy', message: 'ffmpeg nao encontrado; video original copiado.' };
+    return Promise.resolve({ ok: false, mode: 'missing', message: 'ffmpeg nao encontrado.' });
   }
 
   const command = [
@@ -1256,7 +1367,7 @@ function exportClipWithFfmpeg(sourcePath, targetPath, clip, subtitleOptions = nu
       '-t',
       String(durationSeconds),
       '-vf',
-      buildSubtitleFilter(subtitleOptions.subtitlePath, subtitleOptions.fontName, subtitleOptions.position),
+      buildSubtitleFilter(subtitleOptions.subtitlePath, subtitleOptions.fontName, subtitleOptions.position, 1080, 1920, subtitleOptions.captionSettings),
       '-c:v',
       'libx264',
       '-preset',
@@ -1272,58 +1383,69 @@ function exportClipWithFfmpeg(sourcePath, targetPath, clip, subtitleOptions = nu
 
   command.push('-avoid_negative_ts', 'make_zero', targetPath);
 
-  const result = spawnSync(ffmpegBin, command, { encoding: 'utf8', windowsHide: true });
-
-  if (result.status === 0 && fs.existsSync(targetPath)) {
-    return {
-      ok: true,
-      mode: compositionRender ? 'ffmpeg-layout' : subtitleOptions?.subtitlePath ? 'ffmpeg-subtitle' : 'ffmpeg-copy',
-    };
+  if (shouldCancel()) {
+    return Promise.resolve({ ok: false, cancelled: true, mode: 'cancelled', message: 'Exportacao cancelada.' });
   }
 
-  fs.copyFileSync(sourcePath, targetPath);
-  return { ok: false, mode: 'copy', message: result.stderr || 'Falha ao recortar com ffmpeg.' };
-}
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(ffmpegBin, command, { encoding: 'utf8', windowsHide: true });
+    } catch (error) {
+      resolve({
+        ok: false,
+        mode: 'error',
+        code: error.code || 'SPAWN_FAILED',
+        message: error.message || 'Nao foi possivel iniciar o ffmpeg.',
+      });
+      return;
+    }
+    let stderr = '';
+    let settled = false;
+    let cancelled = false;
+    const cancellationTimer = setInterval(() => {
+      if (shouldCancel() && !cancelled) {
+        cancelled = true;
+        try {
+          child.kill();
+        } catch {
+          // O processo pode já ter terminado entre a verificação e o kill.
+        }
+      }
+    }, 200);
 
-function clampNumber(value, min, max, fallback) {
-  const numberValue = Number(value);
-  if (!Number.isFinite(numberValue)) {
-    return fallback;
-  }
+    const finish = (result) => {
+      if (settled) {
+        return;
+      }
 
-  return Math.min(max, Math.max(min, Math.round(numberValue)));
-}
-
-function buildSuggestedClips(video, options = {}) {
-  const duration = Math.max(Number(video.durationSeconds || 0), 1);
-  const mode = options.mode === 'count' ? 'count' : 'duration';
-  const targetDurationSeconds = clampNumber(options.targetDurationSeconds, 5, 600, 60);
-  const targetClipCount = clampNumber(options.targetClipCount, 1, 50, 5);
-  const clipCount =
-    mode === 'count'
-      ? Math.min(targetClipCount, Math.ceil(duration))
-      : Math.max(1, Math.ceil(duration / targetDurationSeconds));
-  const clipDuration = mode === 'count' ? duration / clipCount : targetDurationSeconds;
-  const starts = Array.from({ length: clipCount }, (_, index) => Math.floor(index * clipDuration));
-
-  return starts.map((start, index) => {
-    const end = Math.min(duration, index === starts.length - 1 ? duration : Math.floor((index + 1) * clipDuration));
-    const clipNumber = String(index + 1).padStart(2, '0');
-
-    return {
-      id: crypto.randomUUID(),
-      videoId: video.id,
-      title: `Corte ${clipNumber}`,
-      sourceName: video.originalName,
-      startSeconds: start,
-      endSeconds: end,
-      durationSeconds: Math.max(end - start, 1),
-      duration: formatClipTime(Math.max(end - start, 1)),
-      range: `${formatClipTime(start)} - ${formatClipTime(end)}`,
-      status: 'Pronto',
-      shouldCaption: false,
-      createdAt: new Date().toISOString(),
+      settled = true;
+      clearInterval(cancellationTimer);
+      resolve(result);
     };
+
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on('error', (error) => {
+      finish({ ok: false, mode: 'error', message: error.message });
+    });
+    child.on('close', (code) => {
+      if (cancelled || shouldCancel()) {
+        finish({ ok: false, cancelled: true, mode: 'cancelled', message: 'Exportacao cancelada.' });
+        return;
+      }
+
+      if (code === 0 && fs.existsSync(targetPath)) {
+        finish({
+          ok: true,
+          mode: compositionRender ? 'ffmpeg-layout' : subtitleOptions?.subtitlePath ? 'ffmpeg-subtitle' : 'ffmpeg-copy',
+        });
+        return;
+      }
+
+      finish({ ok: false, mode: 'error', message: stderr || 'Falha ao recortar com ffmpeg.' });
+    });
   });
 }
 
@@ -1369,6 +1491,491 @@ function runPythonJson(scriptName, args = [], timeoutMs = 10 * 60 * 1000) {
       }
     });
   });
+}
+
+function resolveYtDlpCommand() {
+  const configuredBinary = findExecutable('yt-dlp', 'YTDLP_BIN');
+  const isUnresolvedPosixCommand = process.platform !== 'win32' && configuredBinary === 'yt-dlp';
+  if (configuredBinary && !isUnresolvedPosixCommand) {
+    return { binary: configuredBinary, prefixArgs: [] };
+  }
+
+  return PYTHON_BIN ? { binary: PYTHON_BIN, prefixArgs: ['-m', 'yt_dlp'] } : null;
+}
+
+function runExternalCommand(binary, args, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let child;
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+
+      try {
+        child?.kill();
+      } catch {
+        // O processo pode ja ter terminado no mesmo instante do timeout.
+      }
+      settled = true;
+      reject(new Error('O download do video excedeu o tempo limite.'));
+    }, timeoutMs);
+
+    const finish = (callback) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timer);
+      callback();
+    };
+
+    try {
+      child = spawn(binary, args, {
+        cwd: ROOT_DIR,
+        env: process.env,
+        windowsHide: true,
+      });
+    } catch (error) {
+      finish(() => reject(error));
+      return;
+    }
+
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on('error', (error) => finish(() => reject(error)));
+    child.on('close', (code) => {
+      finish(() => {
+        if (code !== 0) {
+          reject(new Error(stderr.trim() || `Comando externo terminou com codigo ${code}.`));
+          return;
+        }
+
+        resolve({ stdout, stderr });
+      });
+    });
+  });
+}
+
+function normalizeImportUrl(value) {
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(String(value || '').trim());
+  } catch {
+    throw new Error('Informe um link de video valido.');
+  }
+
+  if (!['http:', 'https:'].includes(parsedUrl.protocol) || parsedUrl.username || parsedUrl.password) {
+    throw new Error('O link precisa usar HTTP ou HTTPS e nao pode conter credenciais.');
+  }
+
+  const hostname = parsedUrl.hostname.toLowerCase();
+  const isLocalHost = hostname === 'localhost' || hostname === '::1' || /^127\./.test(hostname) || /^0\.0\.0\.0$/.test(hostname);
+  if (isLocalHost) {
+    throw new Error('Links para enderecos locais nao podem ser importados.');
+  }
+
+  return parsedUrl.href;
+}
+
+function getImportProvider(url) {
+  const hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+  if (hostname === 'youtube.com' || hostname.endsWith('.youtube.com') || hostname === 'youtu.be') {
+    return 'youtube';
+  }
+
+  return 'external';
+}
+
+function parseDumpedMetadata(stdout) {
+  const text = String(stdout || '').trim();
+  try {
+    return JSON.parse(text);
+  } catch {
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start === -1 || end <= start) {
+      throw new Error('O provedor nao retornou os metadados do video.');
+    }
+
+    try {
+      return JSON.parse(text.slice(start, end + 1));
+    } catch {
+      throw new Error('Os metadados retornados pelo provedor sao invalidos.');
+    }
+  }
+}
+
+function extractJsonVariable(html, variableName) {
+  const markers = [`var ${variableName} =`, `${variableName} =`];
+  for (const marker of markers) {
+    const markerIndex = html.indexOf(marker);
+    if (markerIndex === -1) {
+      continue;
+    }
+
+    const start = html.indexOf('{', markerIndex + marker.length);
+    if (start === -1) {
+      continue;
+    }
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < html.length; index += 1) {
+      const character = html[index];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (character === '\\') {
+          escaped = true;
+        } else if (character === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (character === '"') {
+        inString = true;
+      } else if (character === '{') {
+        depth += 1;
+      } else if (character === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          try {
+            return JSON.parse(html.slice(start, index + 1));
+          } catch {
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function collectHeatmapMarkers(value, markers = [], visited = new Set()) {
+  if (!value || typeof value !== 'object' || visited.has(value)) {
+    return markers;
+  }
+
+  visited.add(value);
+  if (value.heatMarkerRenderer && typeof value.heatMarkerRenderer === 'object') {
+    const renderer = value.heatMarkerRenderer;
+    const startMilliseconds = Number(
+      renderer.markerOffsetFromStartMillis ?? renderer.timeRangeStartMillis ?? renderer.startMillis,
+    );
+    const durationMilliseconds = Number(renderer.markerDurationMillis ?? renderer.durationMillis);
+    const intensity = Number(
+      renderer.heatMarkerIntensityScoreNormalized ?? renderer.heatMarkerIntensityScore ?? renderer.intensity,
+    );
+
+    if (Number.isFinite(startMilliseconds) && Number.isFinite(durationMilliseconds) && durationMilliseconds > 0 && Number.isFinite(intensity)) {
+      markers.push({
+        startSeconds: Math.max(0, startMilliseconds / 1000),
+        endSeconds: Math.max(0, (startMilliseconds + durationMilliseconds) / 1000),
+        intensity: Math.min(1, Math.max(0, intensity)),
+      });
+    }
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectHeatmapMarkers(item, markers, visited));
+  } else {
+    Object.values(value).forEach((item) => collectHeatmapMarkers(item, markers, visited));
+  }
+
+  return markers;
+}
+
+function extractSvgHeatmapMarkers(html, durationSeconds) {
+  const paths = [];
+  for (const tagMatch of String(html || '').matchAll(/<path\b[^>]*>/gi)) {
+    const tag = tagMatch[0];
+    const classMatch = tag.match(/\bclass=["']([^"']+)["']/i);
+    const pathMatch = tag.match(/\bd=["']([^"']+)["']/i);
+    if (classMatch && pathMatch && /ytp-(?:modern-)?heat-map/i.test(classMatch[1])) {
+      paths.push(pathMatch[1]);
+    }
+  }
+
+  const markers = [];
+  for (const pathData of paths) {
+    const points = [];
+    for (const curveMatch of pathData.matchAll(/C\s*(-?[\d.]+),(-?[\d.]+)\s+(-?[\d.]+),(-?[\d.]+)\s+(-?[\d.]+),(-?[\d.]+)/gi)) {
+      const x = Number(curveMatch[5]);
+      const y = Number(curveMatch[6]);
+      if (Number.isFinite(x) && Number.isFinite(y) && x >= 5 && x <= 1005 && y >= 0 && y <= 100) {
+        points.push({ x, y });
+      }
+    }
+
+    points.forEach((point, index) => {
+      const nextPoint = points[index + 1];
+      const startRatio = Math.min(1, Math.max(0, (point.x - 5) / 1000));
+      const nextRatio = nextPoint
+        ? Math.min(1, Math.max(startRatio, (nextPoint.x - 5) / 1000))
+        : Math.min(1, startRatio + 1 / Math.max(durationSeconds, 1));
+      const startSeconds = startRatio * durationSeconds;
+      const endSeconds = Math.min(durationSeconds, Math.max(startSeconds + 0.5, nextRatio * durationSeconds));
+      markers.push({
+        startSeconds,
+        endSeconds,
+        intensity: Math.min(1, Math.max(0, (100 - point.y) / 100)),
+      });
+    });
+  }
+
+  return markers;
+}
+
+function buildAudienceRecommendations(markers, durationSeconds) {
+  const maxRecommendations = Math.min(12, getMaxClipCount(durationSeconds));
+  const maxStart = Math.max(0, durationSeconds - MIN_CLIP_DURATION_SECONDS);
+  const candidates = markers.map((marker) => {
+    const center = (marker.startSeconds + marker.endSeconds) / 2;
+    const startSeconds = Math.max(0, Math.min(maxStart, center - MIN_CLIP_DURATION_SECONDS / 2));
+    const endSeconds = Math.min(durationSeconds, startSeconds + MIN_CLIP_DURATION_SECONDS);
+    const overlaps = markers.filter((currentMarker) => currentMarker.endSeconds > startSeconds && currentMarker.startSeconds < endSeconds);
+    const totalOverlap = overlaps.reduce((total, currentMarker) => {
+      return total + Math.max(0, Math.min(endSeconds, currentMarker.endSeconds) - Math.max(startSeconds, currentMarker.startSeconds));
+    }, 0);
+    const weightedIntensity = totalOverlap > 0
+      ? overlaps.reduce((total, currentMarker) => {
+          const overlap = Math.max(0, Math.min(endSeconds, currentMarker.endSeconds) - Math.max(startSeconds, currentMarker.startSeconds));
+          return total + currentMarker.intensity * overlap;
+        }, 0) / totalOverlap
+      : marker.intensity;
+
+    return {
+      startSeconds: Number(startSeconds.toFixed(1)),
+      endSeconds: Number(endSeconds.toFixed(1)),
+      durationSeconds: Number((endSeconds - startSeconds).toFixed(1)),
+      intensity: Number(weightedIntensity.toFixed(3)),
+    };
+  });
+  const uniqueCandidates = Array.from(new Map(candidates.map((candidate) => [candidate.startSeconds, candidate])).values());
+  const selected = [];
+
+  for (const candidate of uniqueCandidates.sort((first, second) => second.intensity - first.intensity)) {
+    if (selected.length >= maxRecommendations) {
+      break;
+    }
+
+    if (selected.some((current) => candidate.startSeconds < current.endSeconds && candidate.endSeconds > current.startSeconds)) {
+      continue;
+    }
+
+    selected.push(candidate);
+  }
+
+  return selected
+    .sort((first, second) => first.startSeconds - second.startSeconds)
+    .map((candidate, index) => ({
+      id: `youtube-most-replayed-${index + 1}`,
+      ...candidate,
+      score: Math.round(candidate.intensity * 100),
+      source: 'youtube-most-replayed',
+      rank: index + 1,
+    }));
+}
+
+async function getYouTubeAudienceRecommendations(url, durationSeconds) {
+  if (getImportProvider(url) !== 'youtube') {
+    return {
+      source: null,
+      available: false,
+      markers: 0,
+      recommendations: [],
+      message: null,
+    };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
+  try {
+    const pageResponse = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 ClipCut/1.0' },
+      signal: controller.signal,
+    });
+    if (!pageResponse.ok) {
+      throw new Error(`YouTube respondeu HTTP ${pageResponse.status}.`);
+    }
+
+    const html = await pageResponse.text();
+    const documents = [
+      extractJsonVariable(html, 'ytInitialData'),
+      extractJsonVariable(html, 'ytInitialPlayerResponse'),
+    ].filter(Boolean);
+    const markers = [
+      ...documents.flatMap((document) => collectHeatmapMarkers(document)),
+      ...extractSvgHeatmapMarkers(html, durationSeconds),
+    ]
+      .filter((marker, index, all) => all.findIndex((item) => item.startSeconds === marker.startSeconds) === index)
+      .filter((marker) => marker.startSeconds < durationSeconds);
+    const recommendations = buildAudienceRecommendations(markers, durationSeconds);
+
+    return {
+      source: 'youtube-most-replayed',
+      available: recommendations.length > 0,
+      markers: markers.length,
+      recommendations,
+      message: recommendations.length > 0
+        ? 'Minutagens baseadas no grafico publico de momentos mais assistidos.'
+        : 'Este video nao disponibilizou o grafico publico de momentos mais assistidos.',
+    };
+  } catch (error) {
+    return {
+      source: 'youtube-most-replayed',
+      available: false,
+      markers: 0,
+      recommendations: [],
+      message: error?.name === 'AbortError'
+        ? 'A consulta de audiencia do YouTube expirou; o video foi importado sem recomendacoes.'
+        : `Nao foi possivel obter a audiencia do YouTube: ${error?.message || 'erro desconhecido'}`,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function findDownloadedVideo(fileStem) {
+  const candidates = fs.readdirSync(VIDEOS_DIR)
+    .filter((fileName) => fileName.startsWith(`${fileStem}.`) && !fileName.endsWith('.part'))
+    .map((fileName) => {
+      const filePath = path.join(VIDEOS_DIR, fileName);
+      return { fileName, filePath, size: fs.statSync(filePath).size };
+    })
+    .filter((candidate) => candidate.size > 0)
+    .sort((first, second) => second.size - first.size);
+
+  return candidates[0] || null;
+}
+
+function removeDownloadedCandidates(fileStem) {
+  if (!fs.existsSync(VIDEOS_DIR)) {
+    return;
+  }
+
+  fs.readdirSync(VIDEOS_DIR)
+    .filter((fileName) => fileName.startsWith(`${fileStem}.`))
+    .forEach((fileName) => {
+      try {
+        fs.unlinkSync(path.join(VIDEOS_DIR, fileName));
+      } catch {
+        // A limpeza best-effort nao deve esconder o erro principal da importacao.
+      }
+    });
+}
+
+async function importVideoFromUrl(rawUrl) {
+  const sourceUrl = normalizeImportUrl(rawUrl);
+  const command = resolveYtDlpCommand();
+  if (!command) {
+    const error = new Error('yt-dlp nao encontrado. Instale o yt-dlp ou configure YTDLP_BIN para importar links.');
+    error.code = 'YTDLP_MISSING';
+    throw error;
+  }
+
+  let metadataResult;
+  try {
+    metadataResult = await runExternalCommand(
+      command.binary,
+      [...command.prefixArgs, '--dump-single-json', '--skip-download', '--no-playlist', '--no-warnings', '--no-progress', sourceUrl],
+      2 * 60 * 1000,
+    );
+  } catch (error) {
+    if (command.prefixArgs[0] === '-m' && /No module named ['\"]?yt_dlp['\"]?/.test(error?.message || '')) {
+      const missingDependency = new Error('yt-dlp nao esta instalado. Execute python -m pip install -U yt-dlp para importar links.');
+      missingDependency.code = 'YTDLP_MISSING';
+      throw missingDependency;
+    }
+
+    throw error;
+  }
+  const metadata = parseDumpedMetadata(metadataResult.stdout);
+  const durationSeconds = Number(metadata.duration);
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    throw new Error('O provedor nao informou uma duracao valida; transmissao ao vivo nao e suportada.');
+  }
+
+  if (durationSeconds < MIN_CLIP_DURATION_SECONDS) {
+    throw new Error('O video do link precisa ter pelo menos 1 minuto.');
+  }
+
+  if (durationSeconds > MAX_VIDEO_DURATION_SECONDS) {
+    throw new Error('O video do link ultrapassa o limite de 1 hora.');
+  }
+
+  const fileStem = `${Date.now()}-${crypto.randomUUID()}-${sanitizeFileName(metadata.title || 'video-importado').slice(0, 80) || 'video-importado'}`;
+  const outputTemplate = path.join(VIDEOS_DIR, `${fileStem}.%(ext)s`);
+
+  try {
+    await runExternalCommand(
+      command.binary,
+      [
+        ...command.prefixArgs,
+        '--no-playlist',
+        '--no-warnings',
+        '--no-progress',
+        '--format',
+        'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b',
+        '--merge-output-format',
+        'mp4',
+        '--output',
+        outputTemplate,
+        sourceUrl,
+      ],
+      2 * 60 * 60 * 1000,
+    );
+
+    const downloaded = findDownloadedVideo(fileStem);
+    if (!downloaded) {
+      throw new Error('O provedor concluiu sem produzir um arquivo de video.');
+    }
+
+    const audience = await getYouTubeAudienceRecommendations(sourceUrl, durationSeconds);
+    const extension = path.extname(downloaded.fileName).toLowerCase();
+    const importedVideo = {
+      id: crypto.randomUUID(),
+      originalName: `${metadata.title || 'Video importado'}${extension}`,
+      fileName: downloaded.fileName,
+      type: extension === '.webm' ? 'video/webm' : 'video/mp4',
+      size: downloaded.size,
+      durationSeconds,
+      createdAt: new Date().toISOString(),
+      url: `/videos/${downloaded.fileName}`,
+      sourceType: 'url',
+      sourceUrl,
+      sourceProvider: getImportProvider(sourceUrl),
+      audienceRecommendations: audience.recommendations,
+      audienceInsight: {
+        source: audience.source,
+        available: audience.available,
+        markers: audience.markers,
+        message: audience.message,
+        fetchedAt: new Date().toISOString(),
+      },
+      aiStatus: 'pending',
+      analysis: null,
+    };
+
+    const videos = readManifest();
+    videos.push(importedVideo);
+    writeManifest(videos);
+    return importedVideo;
+  } catch (error) {
+    removeDownloadedCandidates(fileStem);
+    throw error;
+  }
 }
 
 const storage = multer.diskStorage({
@@ -1457,6 +2064,18 @@ app.get('/api/ai/status', async (_request, response) => {
   }
 });
 
+app.get('/api/editorial/config', (_request, response) => {
+  response.json({ config: editorialService.readConfig() });
+});
+
+app.put('/api/editorial/config', (request, response) => {
+  response.json({ config: editorialService.saveConfig(request.body || {}) });
+});
+
+app.get('/api/editorial/status', async (_request, response) => {
+  response.json({ status: await editorialService.getProviderStatus() });
+});
+
 app.get('/api/videos', (_request, response) => {
   const videos = readManifest().sort((first, second) =>
     second.createdAt.localeCompare(first.createdAt),
@@ -1501,6 +2120,19 @@ app.post('/api/projects', (request, response) => {
     : requestedClipIds.length > 0
       ? availableClips.filter((clip) => requestedClipIds.includes(clip.id))
       : availableClips;
+
+  if (layoutOnly !== true && Number(video.durationSeconds || 0) < MIN_CLIP_DURATION_SECONDS) {
+    response.status(422).json({ message: 'O video precisa ter pelo menos 1 minuto para criar cortes.' });
+    return;
+  }
+
+  if (layoutOnly !== true && selectedClips.some((clip) =>
+    !hasMinimumDuration(clip.startSeconds, clip.endSeconds),
+  )) {
+    response.status(422).json({ message: 'Cada corte precisa ter pelo menos 1 minuto.' });
+    return;
+  }
+
   const project = createProject(video, selectedClips, layout);
   project.isLayoutDraft = layoutOnly === true;
 
@@ -1521,6 +2153,147 @@ app.get('/api/projects/:id', (request, response) => {
   }
 
   response.json({ project });
+});
+
+function getEditorialClip(video, composition) {
+  const savedClip = video?.clips?.find((clip) => clip.id === composition.clipId);
+  if (savedClip) {
+    return savedClip;
+  }
+
+  const videoItem = composition?.tracks
+    ?.find((track) => track.kind === 'video')
+    ?.items?.[0];
+  const startSeconds = Number(videoItem?.sourceInMs || 0) / 1000;
+  const endSeconds = Number(videoItem?.sourceOutMs || composition.durationMs || 1000) / 1000;
+
+  return {
+    id: composition.clipId,
+    title: composition.title,
+    startSeconds,
+    endSeconds: Math.max(endSeconds, startSeconds + 0.1),
+  };
+}
+
+app.post('/api/projects/:id/editorial/analyze', async (request, response) => {
+  try {
+    const project = readProject(request.params.id);
+
+    if (!project) {
+      response.status(404).json({ message: 'Projeto nao encontrado.' });
+      return;
+    }
+
+    const { video } = getVideoById(project.sourceVideoId);
+    if (!video) {
+      response.status(404).json({ message: 'Video de origem nao encontrado.' });
+      return;
+    }
+
+    const transcriptSegments = video.analysis?.tools?.whisperx?.segments || [];
+    const providerStatus = await editorialService.getProviderStatus();
+    const analyzedAt = new Date().toISOString();
+    const analyzedCompositions = [];
+
+    // Analises sequenciais evitam sobrecarregar um modelo local com varias geracoes simultaneas.
+    for (const composition of project.compositions || []) {
+      const clip = getEditorialClip(video, composition);
+      const analysis = await editorialService.analyzeClip({
+        clip,
+        transcriptSegments,
+        providerStatus,
+      });
+      const currentEditorial = composition.editorial || {};
+      const titleIsManual = currentEditorial.titleSource === 'manual';
+      const descriptionIsManual = currentEditorial.descriptionSource === 'manual';
+      const editorial = {
+        version: 1,
+        title: titleIsManual ? String(currentEditorial.title || composition.title) : analysis.suggestions.title,
+        description: descriptionIsManual ? String(currentEditorial.description || '') : analysis.suggestions.description,
+        titleSource: titleIsManual ? 'manual' : 'suggested',
+        descriptionSource: descriptionIsManual ? 'manual' : 'suggested',
+        score: analysis.score,
+        source: analysis.source,
+        ...(analysis.fallbackReason ? { fallbackReason: analysis.fallbackReason } : {}),
+        status: currentEditorial.status === 'reviewed' ? 'reviewed' : 'draft',
+        updatedAt: analyzedAt,
+      };
+
+      analyzedCompositions.push({
+        ...composition,
+        title: editorial.title,
+        editorial,
+        updatedAt: analyzedAt,
+      });
+    }
+
+    const analyzedProject = {
+      ...project,
+      compositions: analyzedCompositions,
+      updatedAt: analyzedAt,
+    };
+
+    writeProject(analyzedProject);
+    response.json({ project: analyzedProject, providerStatus });
+  } catch (error) {
+    console.error(`[editorial] project analysis failed: ${error.message}`);
+    response.status(500).json({ message: `Falha na analise editorial: ${error.message}` });
+  }
+});
+
+app.patch('/api/projects/:id/compositions/:compositionId/editorial', (request, response) => {
+  const project = readProject(request.params.id);
+
+  if (!project) {
+    response.status(404).json({ message: 'Projeto nao encontrado.' });
+    return;
+  }
+
+  const composition = project.compositions?.find((item) => item.id === request.params.compositionId);
+  if (!composition) {
+    response.status(404).json({ message: 'Composicao nao encontrada.' });
+    return;
+  }
+
+  const body = request.body || {};
+  const hasTitle = typeof body.title === 'string';
+  const hasDescription = typeof body.description === 'string';
+  if (!hasTitle && !hasDescription) {
+    response.status(400).json({ message: 'Informe titulo ou descricao para salvar.' });
+    return;
+  }
+
+  const updatedAt = new Date().toISOString();
+  const currentEditorial = composition.editorial || {};
+  const title = hasTitle ? body.title.trim().slice(0, 100) : String(currentEditorial.title || composition.title);
+  const description = hasDescription
+    ? body.description.trim().slice(0, 1000)
+    : String(currentEditorial.description || '');
+  const updatedEditorial = {
+    version: 1,
+    title: title || composition.title,
+    description,
+    titleSource: hasTitle ? 'manual' : (currentEditorial.titleSource || 'suggested'),
+    descriptionSource: hasDescription ? 'manual' : (currentEditorial.descriptionSource || 'suggested'),
+    ...(currentEditorial.score ? { score: currentEditorial.score } : {}),
+    status: 'reviewed',
+    updatedAt,
+  };
+  const updatedProject = {
+    ...project,
+    compositions: project.compositions.map((currentComposition) => currentComposition.id === composition.id
+      ? {
+          ...currentComposition,
+          title: updatedEditorial.title,
+          editorial: updatedEditorial,
+          updatedAt,
+        }
+      : currentComposition),
+    updatedAt,
+  };
+
+  writeProject(updatedProject);
+  response.json({ project: updatedProject });
 });
 
 function addSharedImageToProject(project, assetId) {
@@ -1708,6 +2481,11 @@ app.post('/api/projects/:id/generate-clips', async (request, response) => {
     return;
   }
 
+  if (Number(video.durationSeconds || 0) < MIN_CLIP_DURATION_SECONDS) {
+    response.status(422).json({ message: 'O video precisa ter pelo menos 1 minuto para gerar cortes.' });
+    return;
+  }
+
   const baseComposition = project.compositions?.[0];
   const layoutConfig = baseComposition
     ? {
@@ -1729,7 +2507,7 @@ app.post('/api/projects/:id/generate-clips', async (request, response) => {
   }
   const clips = buildSuggestedClips(video, request.body || {});
   if (!Array.isArray(clips) || clips.length === 0) {
-    response.status(400).json({ message: 'Nao foi possivel gerar cortes para este video.' });
+    response.status(400).json({ message: 'Nao foi possivel gerar cortes de pelo menos 1 minuto para este video.' });
     return;
   }
   const generatedProject = createProject(video, clips, layoutConfig);
@@ -1780,7 +2558,10 @@ app.post('/api/projects/:id/generate-clips', async (request, response) => {
     clipsGeneratedAt: now,
   }));
   writeProject(updatedProject);
-  response.status(201).json({ project: updatedProject });
+  response.status(201).json({
+    project: updatedProject,
+    maxClipCount: getMaxClipCount(video.durationSeconds),
+  });
 });
 
 app.post('/api/projects/:id/analyze', (request, response) => {
@@ -1867,6 +2648,11 @@ app.put('/api/compositions/:id', (request, response) => {
     return;
   }
 
+  if (!project.isLayoutDraft && !hasMinimumClipDuration(incomingComposition)) {
+    response.status(422).json({ message: 'Cada corte precisa ter pelo menos 1 minuto.' });
+    return;
+  }
+
   if (expectedRevision !== currentComposition.revision) {
     response.status(409).json({
       message: 'A composicao foi alterada por outra gravacao.',
@@ -1886,12 +2672,16 @@ app.put('/api/compositions/:id', (request, response) => {
     layout: currentComposition.layout,
     captionSettings: currentComposition.captionSettings,
   });
-  const captionSettingsChanged = JSON.stringify(incomingComposition.captionSettings || {}) !== JSON.stringify(currentComposition.captionSettings || {});
+  const captionSettingsChanged = getCaptionContentFingerprint(incomingComposition.captionSettings) !== getCaptionContentFingerprint(currentComposition.captionSettings);
+  const normalizedCaptionSettings = normalizeCaptionSettings(incomingComposition.captionSettings);
   const savedComposition = {
     ...incomingComposition,
     id: currentComposition.id,
     projectId: project.id,
-    captionTrack: captionSettingsChanged ? undefined : incomingComposition.captionTrack,
+    captionSettings: normalizedCaptionSettings,
+    captionTrack: captionSettingsChanged
+      ? undefined
+      : incomingComposition.captionTrack || currentComposition.captionTrack,
     review: reviewableFieldsChanged
       ? { status: 'pending', issues: [] }
       : incomingComposition.review || currentComposition.review,
@@ -2007,6 +2797,11 @@ app.post('/api/videos/:id/clips', (request, response) => {
     return;
   }
 
+  if (Number(video.durationSeconds || 0) < MIN_CLIP_DURATION_SECONDS) {
+    response.status(422).json({ message: 'O video precisa ter pelo menos 1 minuto para gerar cortes.' });
+    return;
+  }
+
   const clips = buildSuggestedClips(video, request.body || {});
   const updatedVideo = updateVideo(video.id, (currentVideo) => ({
     ...currentVideo,
@@ -2014,7 +2809,715 @@ app.post('/api/videos/:id/clips', (request, response) => {
     clipsGeneratedAt: new Date().toISOString(),
   }));
 
-  response.status(201).json({ video: updatedVideo, clips });
+  response.status(201).json({
+    video: updatedVideo,
+    clips,
+    maxClipCount: getMaxClipCount(video.durationSeconds),
+  });
+});
+
+const EXPORT_JOB_PHASES = ['preflight', 'captions', 'render', 'validate', 'cleanup'];
+let activeExportJobs = 0;
+
+function createExportJobError(code, message, clipId = null) {
+  const error = new Error(message);
+  error.code = code;
+  error.clipId = clipId;
+  return error;
+}
+
+function normalizeExportOptions(input = {}) {
+  const subtitleMode = ['automatic', 'manual', 'none'].includes(input.subtitleMode)
+    ? input.subtitleMode
+    : 'automatic';
+  const subtitleDisplayMode = ['block', 'word'].includes(input.subtitleDisplayMode)
+    ? input.subtitleDisplayMode
+    : 'block';
+  const subtitleLanguage = ['original', 'pt-BR'].includes(input.subtitleLanguage)
+    ? input.subtitleLanguage
+    : 'pt-BR';
+
+  return {
+    subtitleMode,
+    manualSubtitleText: String(input.manualSubtitleText || ''),
+    subtitleCorrections: parseSubtitleCorrections(input.subtitleCorrections),
+    subtitleFont: String(input.subtitleFont || 'inter'),
+    subtitlePosition: ['bottom', 'middle', 'top'].includes(input.subtitlePosition)
+      ? input.subtitlePosition
+      : 'bottom',
+    subtitleDisplayMode,
+    subtitleLanguage,
+    audioMode: String(input.audioMode || 'Audio original'),
+  };
+}
+
+function getExportJobWorkspace(job) {
+  try {
+    return getSafeGalleryPath(job.folderName);
+  } catch {
+    throw createExportJobError('INVALID_GALLERY_PATH', 'Caminho de galeria invalido.');
+  }
+}
+
+function cleanupExportJobWorkspace(job, removeAll = false) {
+  let workspacePath;
+  try {
+    workspacePath = getExportJobWorkspace(job);
+  } catch {
+    return;
+  }
+
+  if (!fs.existsSync(workspacePath)) {
+    return;
+  }
+
+  if (removeAll) {
+    fs.rmSync(workspacePath, { recursive: true, force: true });
+    return;
+  }
+
+  const entries = fs.readdirSync(workspacePath, { withFileTypes: true });
+  entries.forEach((entry) => {
+    if (!entry.isFile() || (!entry.name.endsWith('.tmp') && !entry.name.endsWith('.part'))) {
+      return;
+    }
+
+    fs.rmSync(path.join(workspacePath, entry.name), { force: true });
+  });
+}
+
+function createExportJob({ video, project, selectedClips, selectedCompositions, options }) {
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  const packageId = crypto.randomUUID();
+  const clipSnapshots = cloneJson(selectedClips);
+  const compositionSnapshots = cloneJson(selectedCompositions);
+
+  return {
+    version: 1,
+    id,
+    status: 'queued',
+    phase: 'preflight',
+    progress: 0,
+    videoId: video.id,
+    sourceName: video.originalName,
+    projectId: project?.id || null,
+    clipIds: clipSnapshots.map((clip) => clip.id),
+    compositionIds: compositionSnapshots.map((composition) => composition.id),
+    inputRevision: Math.max(0, ...compositionSnapshots.map((composition) => Number(composition.revision) || 0)),
+    packageId,
+    folderName: `${Date.now()}-${packageId}`,
+    options,
+    clipSnapshots,
+    compositionSnapshots,
+    clipResults: clipSnapshots.map((clip) => ({
+      clipId: clip.id,
+      title: clip.title,
+      status: 'queued',
+      phase: 'preflight',
+      progress: 0,
+      attempts: 0,
+      errorCode: null,
+      error: null,
+    })),
+    outputPaths: [],
+    retryCount: 0,
+    cancelRequested: false,
+    currentClipId: null,
+    errorCode: null,
+    error: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function calculateExportProgress(index, total, phase, phaseProgress = 0) {
+  const safeTotal = Math.max(total, 1);
+  const clipWidth = 90 / safeTotal;
+  const phaseStart = {
+    captions: 0,
+    render: 0.25,
+    validate: 0.9,
+  }[phase] ?? 0;
+  const phaseWidth = {
+    captions: 0.25,
+    render: 0.65,
+    validate: 0.1,
+  }[phase] ?? 0;
+  const normalizedProgress = Math.min(1, Math.max(0, Number(phaseProgress) || 0));
+  return Math.min(95, Math.round(5 + (index * clipWidth) + (clipWidth * (phaseStart + phaseWidth * normalizedProgress))));
+}
+
+function assertExportJobActive(jobId) {
+  const job = getExportJob(jobId);
+  if (!job || job.cancelRequested || job.status === 'cancelled') {
+    throw createExportJobError('JOB_CANCELLED', 'Exportacao cancelada.');
+  }
+
+  return job;
+}
+
+function buildGalleryClip(job, clipResult) {
+  const clip = job.clipSnapshots.find((currentClip) => currentClip.id === clipResult.clipId) || {};
+  return {
+    ...clip,
+    status: 'Pronto',
+    shouldCaption: Boolean(clipResult.shouldCaption),
+    subtitleMode: clipResult.subtitleMode,
+    subtitleFont: clipResult.subtitleFont,
+    subtitlePosition: clipResult.subtitlePosition,
+    subtitleDisplayMode: clipResult.subtitleDisplayMode,
+    subtitleLanguage: clipResult.subtitleLanguage,
+    subtitlePath: clipResult.subtitlePath || null,
+    subtitleError: clipResult.subtitleError || null,
+    subtitleSource: clipResult.subtitleSource || null,
+    subtitleCorrections: clipResult.subtitleCorrections || 0,
+    audioMode: clipResult.audioMode,
+    exportResult: clipResult.exportResult,
+    fileName: clipResult.fileName,
+    url: clipResult.url,
+  };
+}
+
+function buildGalleryPackage(job) {
+  const successfulClips = job.clipResults
+    .filter((clipResult) => clipResult.status === 'succeeded')
+    .map((clipResult) => buildGalleryClip(job, clipResult));
+  const options = job.options;
+
+  return {
+    id: job.packageId,
+    jobId: job.id,
+    title: `Pacote - ${job.sourceName}`,
+    folderName: job.folderName,
+    folderUrl: `/gallery/${job.folderName}`,
+    sourceVideoId: job.videoId,
+    sourceName: job.sourceName,
+    projectId: job.projectId,
+    compositionIds: job.compositionIds,
+    canvas: job.compositionSnapshots[0]?.canvas || null,
+    createdAt: new Date().toISOString(),
+    subtitleMode: options.subtitleMode,
+    subtitleFont: options.subtitleFont,
+    subtitlePosition: options.subtitlePosition,
+    subtitleDisplayMode: options.subtitleDisplayMode,
+    subtitleLanguage: options.subtitleLanguage,
+    subtitleCorrections: options.subtitleCorrections.length,
+    audioMode: options.audioMode,
+    clips: successfulClips,
+  };
+}
+
+function upsertGalleryPackage(galleryPackage) {
+  const packages = readGalleryManifest();
+  const existingIndex = packages.findIndex((item) => item.id === galleryPackage.id);
+  if (existingIndex === -1) {
+    packages.push(galleryPackage);
+  } else {
+    packages[existingIndex] = galleryPackage;
+  }
+  writeGalleryManifest(packages);
+}
+
+async function processExportJob(startedJob) {
+  let activeClipId = null;
+  let activePhase = 'preflight';
+
+  try {
+    let job = assertExportJobActive(startedJob.id);
+    const { video } = getVideoById(job.videoId);
+    if (!video) {
+      throw createExportJobError('VIDEO_NOT_FOUND', 'Video nao encontrado.');
+    }
+
+    let videoPath;
+    try {
+      videoPath = getSafeVideoPath(video.fileName);
+    } catch {
+      throw createExportJobError('INVALID_VIDEO_PATH', 'Caminho de video invalido.');
+    }
+
+    if (!fs.existsSync(videoPath)) {
+      throw createExportJobError('VIDEO_FILE_NOT_FOUND', 'Arquivo de video nao encontrado.');
+    }
+
+    const packagePath = getExportJobWorkspace(job);
+    fs.mkdirSync(packagePath, { recursive: true });
+    const extension = path.extname(video.fileName) || '.mp4';
+    const compositionByClip = new Map(job.compositionSnapshots.map((composition) => [composition.clipId, composition]));
+    const totalClips = job.clipSnapshots.length;
+
+    updateExportJob(job.id, (currentJob) => ({
+      ...currentJob,
+      phase: 'preflight',
+      progress: 3,
+      clipResults: currentJob.clipResults.map((clipResult) => {
+        if (clipResult.status !== 'succeeded' || !clipResult.fileName) {
+          return clipResult;
+        }
+
+        return fs.existsSync(path.join(packagePath, clipResult.fileName))
+          ? clipResult
+          : {
+              ...clipResult,
+              status: 'queued',
+              phase: 'preflight',
+              progress: 0,
+              errorCode: null,
+              error: null,
+            };
+      }),
+      updatedAt: new Date().toISOString(),
+    }));
+    job = assertExportJobActive(job.id);
+
+    if (!Array.isArray(job.clipSnapshots) || job.clipSnapshots.length === 0) {
+      throw createExportJobError('EMPTY_EXPORT', 'Nenhum clipe selecionado para exportar.');
+    }
+
+    const options = job.options;
+    const fontName = getSubtitleFontName(options.subtitleFont);
+    const needsTranscript = options.subtitleMode === 'automatic' && job.clipSnapshots.some((clip) => {
+      const captionTrack = compositionByClip.get(clip.id)?.captionTrack;
+      return !captionTrack?.cues?.length && !captionTrack?.words?.length;
+    });
+    let fullVideoTranscript = null;
+
+    if (needsTranscript) {
+      activePhase = 'captions';
+      assertExportJobActive(job.id);
+      updateExportJob(job.id, (currentJob) => ({
+        ...currentJob,
+        phase: 'captions',
+        progress: 5,
+        updatedAt: new Date().toISOString(),
+      }));
+      fullVideoTranscript = await getFullVideoTranscript(videoPath, video);
+      if (!fullVideoTranscript?.ok) {
+        throw createExportJobError(
+          'CAPTIONS_FAILED',
+          fullVideoTranscript?.error || 'Transcricao automatica indisponivel.',
+        );
+      }
+      assertExportJobActive(job.id);
+    }
+
+    for (const [index, clip] of job.clipSnapshots.entries()) {
+      job = assertExportJobActive(job.id);
+      const currentResult = job.clipResults.find((clipResult) => clipResult.clipId === clip.id);
+      if (!currentResult || currentResult.status !== 'queued') {
+        continue;
+      }
+
+      activeClipId = clip.id;
+      const composition = compositionByClip.get(clip.id) || null;
+      const clipBaseName = sanitizeFileName(`${index + 1}-${clip.title}`) || `clip-${index + 1}`;
+      const exportedFileName = `${clipBaseName}${extension}`;
+      const exportedPath = path.join(packagePath, exportedFileName);
+      const subtitleCanvas = composition?.canvas || { width: 1080, height: 1920 };
+      const nextAttempt = Number(currentResult.attempts || 0) + 1;
+
+      activePhase = 'captions';
+      updateExportJob(job.id, (currentJob) => ({
+        ...currentJob,
+        phase: 'captions',
+        progress: calculateExportProgress(index, totalClips, 'captions', 0),
+        currentClipId: clip.id,
+        clipResults: currentJob.clipResults.map((result) => result.clipId === clip.id
+          ? {
+              ...result,
+              status: 'running',
+              phase: 'captions',
+              progress: 0,
+              attempts: nextAttempt,
+              errorCode: null,
+              error: null,
+            }
+          : result),
+        updatedAt: new Date().toISOString(),
+      }));
+
+      const subtitleFile = options.subtitleMode === 'automatic'
+        ? await createAutomaticSubtitleFile(
+            packagePath,
+            job.folderName,
+            clipBaseName,
+            fullVideoTranscript,
+            clip,
+            options.subtitleCorrections,
+            {
+              displayMode: options.subtitleDisplayMode,
+              fontName,
+              position: options.subtitlePosition,
+              canvasWidth: subtitleCanvas.width,
+              canvasHeight: subtitleCanvas.height,
+              subtitleLanguage: options.subtitleLanguage,
+              captionTrack: composition?.captionTrack,
+              captionSettings: composition?.captionSettings,
+            },
+          )
+        : await createSubtitleFile(packagePath, job.folderName, clipBaseName, video, clip, {
+            subtitleMode: options.subtitleMode,
+            manualSubtitleText: options.manualSubtitleText,
+            subtitleCorrections: options.subtitleCorrections,
+            subtitleDisplayMode: options.subtitleDisplayMode,
+            subtitleFontName: fontName,
+            subtitlePosition: options.subtitlePosition,
+            canvasWidth: subtitleCanvas.width,
+            canvasHeight: subtitleCanvas.height,
+            subtitleLanguage: options.subtitleLanguage,
+            captionTrack: composition?.captionTrack,
+            captionSettings: composition?.captionSettings,
+          });
+
+      assertExportJobActive(job.id);
+      if (subtitleFile?.error) {
+        throw createExportJobError('CAPTIONS_FAILED', subtitleFile.error, clip.id);
+      }
+
+      activePhase = 'render';
+      updateExportJob(job.id, (currentJob) => ({
+        ...currentJob,
+        phase: 'render',
+        progress: calculateExportProgress(index, totalClips, 'render', 0),
+        clipResults: currentJob.clipResults.map((result) => result.clipId === clip.id
+          ? { ...result, phase: 'render', progress: 0 }
+          : result),
+        updatedAt: new Date().toISOString(),
+      }));
+
+      const exportResult = await exportClipWithFfmpeg(
+        videoPath,
+        exportedPath,
+        clip,
+        subtitleFile?.filePath
+          ? {
+              subtitlePath: subtitleFile.filePath,
+              fontName,
+              position: options.subtitlePosition,
+              captionSettings: composition?.captionSettings,
+            }
+          : null,
+        composition,
+        job.projectId ? readProject(job.projectId) : null,
+        () => {
+          const currentJob = getExportJob(job.id);
+          return !currentJob || currentJob.cancelRequested || currentJob.status === 'cancelled';
+        },
+      );
+
+      if (exportResult.cancelled) {
+        throw createExportJobError('JOB_CANCELLED', 'Exportacao cancelada.', clip.id);
+      }
+      if (!exportResult.ok) {
+        throw createExportJobError('RENDER_FAILED', exportResult.message || 'Falha ao recortar com ffmpeg.', clip.id);
+      }
+
+      activePhase = 'validate';
+      const outputStats = fs.existsSync(exportedPath) ? fs.statSync(exportedPath) : null;
+      if (!outputStats || outputStats.size === 0) {
+        throw createExportJobError('OUTPUT_INVALID', 'O arquivo exportado nao foi validado.', clip.id);
+      }
+
+      updateExportJob(job.id, (currentJob) => ({
+        ...currentJob,
+        phase: 'validate',
+        progress: calculateExportProgress(index, totalClips, 'validate', 1),
+        currentClipId: null,
+        outputPaths: [...new Set([...(currentJob.outputPaths || []), path.relative(ROOT_DIR, exportedPath)])],
+        clipResults: currentJob.clipResults.map((result) => result.clipId === clip.id
+          ? {
+              ...result,
+              status: 'succeeded',
+              phase: 'validate',
+              progress: 100,
+              outputPath: path.relative(ROOT_DIR, exportedPath),
+              fileName: exportedFileName,
+              url: `/gallery/${job.folderName}/${exportedFileName}`,
+              shouldCaption: Boolean(subtitleFile?.filePath),
+              subtitleMode: options.subtitleMode,
+              subtitleFont: options.subtitleFont,
+              subtitlePosition: options.subtitlePosition,
+              subtitleDisplayMode: options.subtitleDisplayMode,
+              subtitleLanguage: options.subtitleLanguage,
+              subtitlePath: subtitleFile?.url || null,
+              subtitleError: subtitleFile?.error || null,
+              subtitleSource: composition?.captionTrack ? 'composition-caption-track' : fullVideoTranscript?.source || null,
+              subtitleCorrections: options.subtitleCorrections.length,
+              audioMode: options.audioMode,
+              exportResult,
+              errorCode: null,
+              error: null,
+            }
+          : result),
+        updatedAt: new Date().toISOString(),
+      }));
+      activeClipId = null;
+      job = assertExportJobActive(job.id);
+    }
+
+    job = assertExportJobActive(job.id);
+    const unfinishedResults = job.clipResults.filter((clipResult) => clipResult.status !== 'succeeded');
+    if (unfinishedResults.length > 0) {
+      throw createExportJobError(
+        'RETRY_REQUIRED',
+        `${unfinishedResults.length} corte(s) ainda precisam de retry.`,
+      );
+    }
+
+    activePhase = 'cleanup';
+    updateExportJob(job.id, (currentJob) => ({
+      ...currentJob,
+      phase: 'cleanup',
+      progress: 97,
+      currentClipId: null,
+      updatedAt: new Date().toISOString(),
+    }));
+    cleanupExportJobWorkspace(job);
+    const finalJob = getExportJob(job.id);
+    const galleryPackage = buildGalleryPackage(finalJob);
+    writeJsonFile(path.join(packagePath, 'package.json'), galleryPackage);
+    upsertGalleryPackage(galleryPackage);
+    updateExportJob(job.id, (currentJob) => ({
+      ...currentJob,
+      status: 'succeeded',
+      phase: 'cleanup',
+      progress: 100,
+      galleryPackageId: galleryPackage.id,
+      finishedAt: new Date().toISOString(),
+      currentClipId: null,
+      errorCode: null,
+      error: null,
+      updatedAt: new Date().toISOString(),
+    }));
+  } catch (error) {
+    const job = getExportJob(startedJob.id);
+    if (!job) {
+      return;
+    }
+
+    const isCancelled = error.code === 'JOB_CANCELLED' || job.cancelRequested || job.status === 'cancelled';
+    if (isCancelled) {
+      cleanupExportJobWorkspace(job, true);
+      updateExportJob(job.id, (currentJob) => ({
+        ...currentJob,
+        status: 'cancelled',
+        phase: 'cleanup',
+        progress: Math.min(99, currentJob.progress || 0),
+        cancelRequested: false,
+        finishedAt: new Date().toISOString(),
+        currentClipId: null,
+        errorCode: 'CANCELLED',
+        error: 'Exportacao cancelada.',
+        clipResults: currentJob.clipResults.map((clipResult) => ({
+          ...clipResult,
+          status: 'cancelled',
+          phase: 'cleanup',
+          errorCode: 'CANCELLED',
+          error: 'Exportacao cancelada.',
+        })),
+        updatedAt: new Date().toISOString(),
+      }));
+      return;
+    }
+
+    cleanupExportJobWorkspace(job);
+    updateExportJob(job.id, (currentJob) => ({
+      ...currentJob,
+      status: 'failed',
+      phase: EXPORT_JOB_PHASES.includes(activePhase) ? activePhase : 'validate',
+      finishedAt: new Date().toISOString(),
+      currentClipId: null,
+      errorCode: error.code || 'EXPORT_FAILED',
+      error: error.message || 'Falha ao exportar o pacote.',
+      clipResults: currentJob.clipResults.map((clipResult) => clipResult.clipId === (error.clipId || activeClipId) && clipResult.status === 'running'
+        ? {
+            ...clipResult,
+            status: 'failed',
+            phase: activePhase,
+            progress: 0,
+            errorCode: error.code || 'EXPORT_FAILED',
+            error: error.message || 'Falha ao exportar este corte.',
+          }
+        : clipResult),
+      updatedAt: new Date().toISOString(),
+    }));
+    console.error(`[export-job] ${job.id} failed: ${error.message}`);
+  }
+}
+
+function scheduleExportJobs() {
+  while (activeExportJobs < EXPORT_JOB_CONCURRENCY) {
+    const queuedJob = readExportJobs().find((job) => job.status === 'queued' && !job.cancelRequested);
+    if (!queuedJob) {
+      return;
+    }
+
+    const startedJob = updateExportJob(queuedJob.id, (currentJob) => currentJob.status === 'queued'
+      ? {
+          ...currentJob,
+          status: 'running',
+          phase: 'preflight',
+          startedAt: currentJob.startedAt || new Date().toISOString(),
+          finishedAt: null,
+          updatedAt: new Date().toISOString(),
+        }
+      : currentJob);
+    if (!startedJob || startedJob.status !== 'running') {
+      continue;
+    }
+
+    activeExportJobs += 1;
+    void processExportJob(startedJob).finally(() => {
+      activeExportJobs = Math.max(0, activeExportJobs - 1);
+      scheduleExportJobs();
+    });
+  }
+}
+
+function recoverExportJobs() {
+  const jobs = readExportJobs();
+  let changed = false;
+  const recoveredJobs = jobs.map((job) => {
+    if (job.status !== 'running') {
+      return job;
+    }
+
+    changed = true;
+    return {
+      ...job,
+      status: 'queued',
+      phase: 'preflight',
+      progress: 0,
+      cancelRequested: false,
+      finishedAt: null,
+      currentClipId: null,
+      clipResults: (job.clipResults || []).map((clipResult) => clipResult.status === 'running'
+        ? { ...clipResult, status: 'queued', phase: 'preflight', progress: 0 }
+        : clipResult),
+      updatedAt: new Date().toISOString(),
+    };
+  });
+
+  if (changed) {
+    writeExportJobs(recoveredJobs);
+  }
+}
+
+app.get('/api/export-jobs', (_request, response) => {
+  const jobs = readExportJobs()
+    .sort((first, second) => String(second.createdAt || '').localeCompare(String(first.createdAt || '')))
+    .slice(0, 50)
+    .map(publicExportJob);
+  response.json({ jobs });
+});
+
+app.get('/api/export-jobs/:id', (request, response) => {
+  const job = getExportJob(request.params.id);
+  if (!job) {
+    response.status(404).json({ message: 'Job de exportacao nao encontrado.' });
+    return;
+  }
+  response.json({ job: publicExportJob(job) });
+});
+
+app.post('/api/export-jobs/:id/cancel', (request, response) => {
+  const job = getExportJob(request.params.id);
+  if (!job) {
+    response.status(404).json({ message: 'Job de exportacao nao encontrado.' });
+    return;
+  }
+
+  if (['succeeded', 'failed', 'cancelled'].includes(job.status)) {
+    response.status(409).json({ message: 'Este job nao pode mais ser cancelado.' });
+    return;
+  }
+
+  if (job.status === 'queued') {
+    cleanupExportJobWorkspace(job, true);
+    const cancelledJob = updateExportJob(job.id, (currentJob) => ({
+      ...currentJob,
+      status: 'cancelled',
+      phase: 'cleanup',
+      cancelRequested: false,
+      finishedAt: new Date().toISOString(),
+      errorCode: 'CANCELLED',
+      error: 'Exportacao cancelada.',
+      clipResults: currentJob.clipResults.map((clipResult) => ({
+        ...clipResult,
+        status: 'cancelled',
+        phase: 'cleanup',
+        errorCode: 'CANCELLED',
+        error: 'Exportacao cancelada.',
+      })),
+      updatedAt: new Date().toISOString(),
+    }));
+    response.json({ job: publicExportJob(cancelledJob) });
+    return;
+  }
+
+  const requestedJob = updateExportJob(job.id, (currentJob) => ({
+    ...currentJob,
+    cancelRequested: true,
+    error: 'Cancelamento solicitado.',
+    updatedAt: new Date().toISOString(),
+  }));
+  response.json({ job: publicExportJob(requestedJob) });
+});
+
+app.post('/api/export-jobs/:id/retry', (request, response) => {
+  const job = getExportJob(request.params.id);
+  if (!job) {
+    response.status(404).json({ message: 'Job de exportacao nao encontrado.' });
+    return;
+  }
+
+  if (!['failed', 'cancelled'].includes(job.status)) {
+    response.status(409).json({ message: 'Somente jobs falhos ou cancelados podem ser repetidos.' });
+    return;
+  }
+
+  const requestedClipId = typeof request.body?.clipId === 'string' ? request.body.clipId : '';
+  if (requestedClipId) {
+    const requestedResult = job.clipResults.find((clipResult) => clipResult.clipId === requestedClipId);
+    if (!requestedResult || !['failed', 'cancelled'].includes(requestedResult.status)) {
+      response.status(409).json({ message: 'Somente um corte falho pode ser repetido individualmente.' });
+      return;
+    }
+  }
+
+  const failedIds = job.status === 'cancelled'
+    ? job.clipResults.map((clipResult) => clipResult.clipId)
+    : job.clipResults
+        .filter((clipResult) => ['failed', 'queued', 'cancelled'].includes(clipResult.status))
+        .map((clipResult) => clipResult.clipId);
+  const targetIds = requestedClipId ? [requestedClipId] : failedIds;
+  const retriedJob = updateExportJob(job.id, (currentJob) => ({
+    ...currentJob,
+    status: 'queued',
+    phase: 'preflight',
+    progress: 0,
+    cancelRequested: false,
+    startedAt: null,
+    finishedAt: null,
+    currentClipId: null,
+    retryCount: Number(currentJob.retryCount || 0) + 1,
+    errorCode: null,
+    error: null,
+    clipResults: currentJob.clipResults.map((clipResult) => targetIds.includes(clipResult.clipId)
+      ? {
+          ...clipResult,
+          status: 'queued',
+          phase: 'preflight',
+          progress: 0,
+          errorCode: null,
+          error: null,
+        }
+      : clipResult),
+    updatedAt: new Date().toISOString(),
+  }));
+  scheduleExportJobs();
+  response.status(202).json({ job: publicExportJob(retriedJob) });
 });
 
 app.get('/api/gallery', (_request, response) => {
@@ -2025,20 +3528,12 @@ app.get('/api/gallery', (_request, response) => {
   response.json({ packages });
 });
 
-app.post('/api/gallery/export', async (request, response) => {
+app.post('/api/gallery/export', (request, response) => {
   const {
     videoId,
     projectId,
     clipIds,
     compositionIds,
-    subtitleMode = 'automatic',
-    manualSubtitleText = '',
-    subtitleCorrections = '',
-    subtitleFont = 'inter',
-    subtitlePosition = 'bottom',
-    subtitleDisplayMode = 'block',
-    subtitleLanguage = 'pt-BR',
-    audioMode = 'Audio original',
   } = request.body || {};
   const { video } = getVideoById(videoId);
 
@@ -2054,7 +3549,6 @@ app.post('/api/gallery/export', async (request, response) => {
   }
 
   let videoPath;
-
   try {
     videoPath = getSafeVideoPath(video.fileName);
   } catch {
@@ -2069,13 +3563,19 @@ app.post('/api/gallery/export', async (request, response) => {
 
   const requestedClipIds = Array.isArray(clipIds) ? clipIds : [];
   const sourceClips = video.clips || [];
-  const selectedClips =
-    requestedClipIds.length > 0
-      ? sourceClips.filter((clip) => requestedClipIds.includes(clip.id))
-      : sourceClips;
+  const selectedClips = requestedClipIds.length > 0
+    ? sourceClips.filter((clip) => requestedClipIds.includes(clip.id))
+    : sourceClips;
 
   if (selectedClips.length === 0) {
     response.status(400).json({ message: 'Nenhum clipe selecionado para exportar.' });
+    return;
+  }
+
+  if (selectedClips.some((clip) =>
+    !hasMinimumDuration(clip.startSeconds, clip.endSeconds),
+  )) {
+    response.status(422).json({ message: 'Todos os cortes precisam ter pelo menos 1 minuto para exportar.' });
     return;
   }
 
@@ -2100,141 +3600,26 @@ app.post('/api/gallery/export', async (request, response) => {
     }
   }
 
-  const packageId = crypto.randomUUID();
-  const folderName = `${Date.now()}-${packageId}`;
-  let packagePath;
+  const job = createExportJob({
+    video,
+    project,
+    selectedClips,
+    selectedCompositions,
+    options: normalizeExportOptions(request.body || {}),
+  });
+  writeExportJobs([...readExportJobs(), job]);
+  scheduleExportJobs();
+  response.status(202).json({ job: publicExportJob(job) });
+});
 
+app.post('/api/videos/import-url', async (request, response) => {
   try {
-    packagePath = getSafeGalleryPath(folderName);
-  } catch {
-    response.status(400).json({ message: 'Caminho de galeria invalido.' });
-    return;
+    const video = await importVideoFromUrl(request.body?.url);
+    response.status(201).json({ video });
+  } catch (error) {
+    const statusCode = error?.code === 'YTDLP_MISSING' ? 503 : 422;
+    response.status(statusCode).json({ message: error?.message || 'Nao foi possivel importar o video pelo link.' });
   }
-
-  fs.mkdirSync(packagePath, { recursive: true });
-
-  const extension = path.extname(video.fileName) || '.mp4';
-  const normalizedSubtitleMode = ['automatic', 'manual', 'none'].includes(subtitleMode) ? subtitleMode : 'automatic';
-  const normalizedSubtitleDisplayMode = ['block', 'word'].includes(subtitleDisplayMode) ? subtitleDisplayMode : 'block';
-  const normalizedSubtitleLanguage = ['original', 'pt-BR'].includes(subtitleLanguage) ? subtitleLanguage : 'pt-BR';
-  const fontName = getSubtitleFontName(subtitleFont);
-  const parsedSubtitleCorrections = parseSubtitleCorrections(subtitleCorrections);
-  const compositionByClip = new Map(selectedCompositions.map((composition) => [composition.clipId, composition]));
-  const needsTranscript = normalizedSubtitleMode === 'automatic' && (
-    !project || selectedClips.some((clip) => {
-      const captionTrack = compositionByClip.get(clip.id)?.captionTrack;
-      return !captionTrack?.cues?.length && !captionTrack?.words?.length;
-    })
-  );
-  const fullVideoTranscript =
-    needsTranscript ? await getFullVideoTranscript(videoPath, video) : null;
-  const exportedClips = [];
-
-  for (const [index, clip] of selectedClips.entries()) {
-    const clipBaseName = sanitizeFileName(`${index + 1}-${clip.title}`) || `clip-${index + 1}`;
-    const exportedFileName = `${clipBaseName}${extension}`;
-    const exportedPath = path.join(packagePath, exportedFileName);
-    const composition = selectedCompositions.find((currentComposition) => currentComposition.clipId === clip.id) || null;
-    const subtitleCanvas = composition?.canvas || { width: 1080, height: 1920 };
-    const subtitleFile =
-      normalizedSubtitleMode === 'automatic'
-        ? await createAutomaticSubtitleFile(
-            packagePath,
-            folderName,
-            clipBaseName,
-            fullVideoTranscript,
-            clip,
-            parsedSubtitleCorrections,
-            {
-              displayMode: normalizedSubtitleDisplayMode,
-              fontName,
-              position: subtitlePosition,
-              canvasWidth: subtitleCanvas.width,
-              canvasHeight: subtitleCanvas.height,
-              subtitleLanguage: normalizedSubtitleLanguage,
-              captionTrack: composition?.captionTrack,
-            },
-          )
-        : await createSubtitleFile(packagePath, folderName, clipBaseName, video, clip, {
-            subtitleMode: normalizedSubtitleMode,
-            manualSubtitleText,
-            subtitleCorrections: parsedSubtitleCorrections,
-            subtitleDisplayMode: normalizedSubtitleDisplayMode,
-            subtitleFontName: fontName,
-            subtitlePosition,
-            canvasWidth: subtitleCanvas.width,
-            canvasHeight: subtitleCanvas.height,
-            subtitleLanguage: normalizedSubtitleLanguage,
-            captionTrack: composition?.captionTrack,
-          });
-    if (subtitleFile?.error) {
-      console.error(`[captions] export blocked for clip ${clip.id}: ${subtitleFile.error}`);
-      fs.rmSync(packagePath, { recursive: true, force: true });
-      response.status(422).json({ message: subtitleFile.error });
-      return;
-    }
-    const exportResult = exportClipWithFfmpeg(
-      videoPath,
-      exportedPath,
-      clip,
-      subtitleFile?.filePath
-        ? {
-            subtitlePath: subtitleFile.filePath,
-            fontName,
-            position: subtitlePosition,
-          }
-        : null,
-      composition,
-      project,
-    );
-
-    exportedClips.push({
-      ...clip,
-      shouldCaption: Boolean(subtitleFile?.filePath),
-      subtitleMode: normalizedSubtitleMode,
-      subtitleFont,
-      subtitlePosition,
-      subtitleDisplayMode: normalizedSubtitleDisplayMode,
-      subtitleLanguage: normalizedSubtitleLanguage,
-      subtitlePath: subtitleFile?.url || null,
-      subtitleError: subtitleFile?.error || null,
-      subtitleSource: composition?.captionTrack ? 'composition-caption-track' : fullVideoTranscript?.source || null,
-      subtitleCorrections: parsedSubtitleCorrections.length,
-      audioMode,
-      exportResult,
-      fileName: exportedFileName,
-      url: `/gallery/${folderName}/${exportedFileName}`,
-    });
-  }
-
-  const galleryPackage = {
-    id: packageId,
-    title: `Pacote - ${video.originalName}`,
-    folderName,
-    folderUrl: `/gallery/${folderName}`,
-    sourceVideoId: video.id,
-    sourceName: video.originalName,
-    projectId: project?.id || null,
-    compositionIds: selectedCompositions.map((composition) => composition.id),
-    canvas: selectedCompositions[0]?.canvas || null,
-    createdAt: new Date().toISOString(),
-    subtitleMode: normalizedSubtitleMode,
-    subtitleFont,
-    subtitlePosition,
-    subtitleDisplayMode: normalizedSubtitleDisplayMode,
-    subtitleLanguage: normalizedSubtitleLanguage,
-    subtitleCorrections: parsedSubtitleCorrections.length,
-    audioMode,
-    clips: exportedClips,
-  };
-
-  writeJsonFile(path.join(packagePath, 'package.json'), galleryPackage);
-
-  const packages = readGalleryManifest();
-  packages.push(galleryPackage);
-  writeGalleryManifest(packages);
-
-  response.status(201).json({ package: galleryPackage });
 });
 
 app.post('/api/videos', upload.single('video'), (request, response) => {
@@ -2244,6 +3629,12 @@ app.post('/api/videos', upload.single('video'), (request, response) => {
   }
 
   const durationSeconds = Number(request.body.durationSeconds || 0);
+  if (!Number.isFinite(durationSeconds) || durationSeconds < MIN_CLIP_DURATION_SECONDS || durationSeconds > MAX_VIDEO_DURATION_SECONDS) {
+    fs.unlinkSync(request.file.path);
+    response.status(422).json({ message: 'O video precisa ter duracao entre 1 minuto e 1 hora.' });
+    return;
+  }
+
   const videos = readManifest();
   const video = {
     id: crypto.randomUUID(),
@@ -2254,6 +3645,7 @@ app.post('/api/videos', upload.single('video'), (request, response) => {
     durationSeconds,
     createdAt: new Date().toISOString(),
     url: `/videos/${request.file.filename}`,
+    sourceType: 'file',
     aiStatus: 'pending',
     analysis: null,
   };
@@ -2361,13 +3753,16 @@ app.use((error, _request, response, _next) => {
   response.status(500).json({ message: 'Erro interno na API.' });
 });
 
+recoverExportJobs();
+scheduleExportJobs();
+
 const server = app.listen(PORT, () => {
-  console.log(`GeradorClip API running at http://localhost:${PORT}`);
+  console.log(`ClipCut API running at http://localhost:${PORT}`);
   console.log(`Videos directory: ${VIDEOS_DIR}`);
 });
 
 server.on('error', (error) => {
-  console.error(`GeradorClip API failed to start: ${error.message}`);
+  console.error(`ClipCut API failed to start: ${error.message}`);
   process.exitCode = 1;
 });
 

@@ -3,3 +3,4 @@ faster-whisper
 mediapipe
 pyannote.audio
 opencv-python
+yt-dlp
