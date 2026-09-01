@@ -7,6 +7,30 @@ export type SubtitleFont = {
 
 export const subtitleFonts: SubtitleFont[] = [
   {
+    id: 'geist',
+    label: 'Geist (Opus)',
+    ffmpegName: 'Geist',
+    cssFamily: 'Geist, Arial, sans-serif',
+  },
+  {
+    id: 'komika-axis',
+    label: 'Komika Axis (Opus)',
+    ffmpegName: 'Komika Axis',
+    cssFamily: '"Komika Axis", Anton, Impact, sans-serif',
+  },
+  {
+    id: 'anton',
+    label: 'Anton',
+    ffmpegName: 'Anton',
+    cssFamily: 'Anton, Impact, sans-serif',
+  },
+  {
+    id: 'bebas-neue',
+    label: 'Bebas Neue',
+    ffmpegName: 'Bebas Neue',
+    cssFamily: '"Bebas Neue", Impact, sans-serif',
+  },
+  {
     id: 'inter',
     label: 'Inter',
     ffmpegName: 'Inter',

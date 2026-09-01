@@ -180,6 +180,9 @@ def run_mediapipe(video_path):
         sampled_frames = 0
         frames_with_faces = 0
         max_faces = 0
+        face_samples = []
+        face_tracking = []
+        previous_gray = None
 
         detector = mp.solutions.face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
 
@@ -197,6 +200,62 @@ def run_mediapipe(video_path):
                 if face_count:
                     frames_with_faces += 1
 
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                small_gray = cv2.resize(gray, (64, 64))
+                motion = 0.0
+                if previous_gray is not None:
+                    motion = min(1.0, float(cv2.absdiff(previous_gray, small_gray).mean()) / 48.0)
+                previous_gray = small_gray
+
+                faces = []
+                for detection in detections:
+                    try:
+                        bounding_box = detection.location_data.relative_bounding_box
+                        x = max(0.0, min(1.0, float(bounding_box.xmin)))
+                        y = max(0.0, min(1.0, float(bounding_box.ymin)))
+                        width = max(0.0, min(1.0 - x, float(bounding_box.width)))
+                        height = max(0.0, min(1.0 - y, float(bounding_box.height)))
+                        confidence = float(detection.score[0]) if detection.score else 0.0
+                        faces.append({
+                            "x": round(x, 5),
+                            "y": round(y, 5),
+                            "width": round(width, 5),
+                            "height": round(height, 5),
+                            "centerX": round(x + width / 2.0, 5),
+                            "centerY": round(y + height / 2.0, 5),
+                            "confidence": round(confidence, 5),
+                        })
+                    except Exception:
+                        continue
+
+                primary_face = max(
+                    faces,
+                    key=lambda face: (face["width"] * face["height"]) * max(face["confidence"], 0.01),
+                    default=None,
+                )
+                time_seconds = frame_index / max(float(fps), 1.0)
+                face_samples.append({
+                    "timeSeconds": round(time_seconds, 3),
+                    "faceCount": face_count,
+                    "faces": faces,
+                    "primaryFace": primary_face,
+                    "motion": round(motion, 5),
+                })
+
+                if primary_face:
+                    target_x = max(-100.0, min(100.0, (primary_face["centerX"] - 0.5) * 200.0))
+                    target_y = max(-100.0, min(100.0, (primary_face["centerY"] - 0.5) * 200.0))
+                    if face_tracking:
+                        previous = face_tracking[-1]
+                        target_x = previous["x"] * 0.65 + target_x * 0.35
+                        target_y = previous["y"] * 0.65 + target_y * 0.35
+                    face_tracking.append({
+                        "timeMs": int(round(time_seconds * 1000)),
+                        "x": round(target_x, 3),
+                        "y": round(target_y, 3),
+                        "scale": 1.0,
+                    })
+
             frame_index += 1
 
         cap.release()
@@ -208,6 +267,8 @@ def run_mediapipe(video_path):
             "sampledFrames": sampled_frames,
             "framesWithFaces": frames_with_faces,
             "maxFaces": max_faces,
+            "faceSamples": face_samples,
+            "faceTracking": face_tracking,
         }
     except Exception as error:
         return {"available": True, "ok": False, "message": str(error)}

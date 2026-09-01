@@ -112,6 +112,7 @@ export type CaptionMode = 'none' | 'automatic' | 'manual';
 export type CaptionPosition = 'top' | 'middle' | 'bottom';
 export type CaptionDisplayMode = 'block' | 'word';
 export type CaptionLanguage = 'original' | 'pt-BR';
+export type CaptionEffect = 'none' | 'karaoke' | 'boxed' | 'neon' | 'shadow';
 
 export type CaptionSettings = {
   mode: CaptionMode;
@@ -120,6 +121,7 @@ export type CaptionSettings = {
   font?: string;
   position?: CaptionPosition;
   displayMode?: CaptionDisplayMode;
+  effect?: CaptionEffect;
   language?: CaptionLanguage;
   positionX?: number;
   positionY?: number;
@@ -189,6 +191,7 @@ export type Project = {
   compositions: Composition[];
   layoutTemplate?: LayoutConfig;
   isLayoutDraft?: boolean;
+  generationWarning?: string | null;
   createdAt: string;
   updatedAt: string;
 };

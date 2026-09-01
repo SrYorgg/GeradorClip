@@ -1,6 +1,5 @@
 const MIN_CLIP_DURATION_SECONDS = 60;
 const MIN_CLIP_DURATION_MS = MIN_CLIP_DURATION_SECONDS * 1000;
-const MAX_VIDEO_DURATION_SECONDS = 60 * 60;
 
 function getMaxClipCount(durationSeconds) {
   const duration = Number(durationSeconds);
@@ -18,7 +17,6 @@ function hasMinimumDuration(startSeconds, endSeconds) {
 }
 
 module.exports = {
-  MAX_VIDEO_DURATION_SECONDS,
   MIN_CLIP_DURATION_MS,
   MIN_CLIP_DURATION_SECONDS,
   getMaxClipCount,

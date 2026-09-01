@@ -5,10 +5,12 @@ import {
   ArrowLeft,
   ArrowUp,
   Check,
+  CircleAlert,
   Copy,
   Crop,
   Grid3X3,
   ImagePlus,
+  LoaderCircle,
   Move,
   Play,
   Redo2,
@@ -191,12 +193,52 @@ function getObjectPosition(value: number) {
   return `${clamp(50 + value / 2, 0, 100)}%`;
 }
 
-function getVisualStyle(composition: Composition, item: TrackItem, dragPreview: { itemId: string; x: number; y: number } | null): CSSProperties {
+function getTrackedPosition(composition: Composition, playheadMs: number) {
+  const keyframes = (composition.framingTrack || [])
+    .filter((keyframe) => Number.isFinite(Number(keyframe.timeMs)))
+    .sort((first, second) => first.timeMs - second.timeMs);
+  if (keyframes.length === 0) {
+    return null;
+  }
+
+  if (playheadMs <= keyframes[0].timeMs) {
+    return keyframes[0];
+  }
+
+  const lastKeyframe = keyframes[keyframes.length - 1];
+  if (playheadMs >= lastKeyframe.timeMs) {
+    return lastKeyframe;
+  }
+
+  const nextIndex = keyframes.findIndex((keyframe) => keyframe.timeMs >= playheadMs);
+  const next = keyframes[nextIndex];
+  const previous = keyframes[Math.max(0, nextIndex - 1)];
+  const progress = (playheadMs - previous.timeMs) / Math.max(next.timeMs - previous.timeMs, 1);
+  return {
+    ...previous,
+    x: previous.x + (next.x - previous.x) * progress,
+    y: previous.y + (next.y - previous.y) * progress,
+  };
+}
+
+function getVisualStyle(
+  composition: Composition,
+  item: TrackItem,
+  dragPreview: { itemId: string; x: number; y: number } | null,
+  playheadMs = 0,
+): CSSProperties {
   const region = getCompositionRegion(composition, item);
   const baseTransform = getTransform(item);
+  const trackedPosition = item.mediaType === 'image' ? null : getTrackedPosition(composition, playheadMs);
   const transform = dragPreview?.itemId === item.id
     ? { ...baseTransform, x: dragPreview.x, y: dragPreview.y }
-    : baseTransform;
+    : trackedPosition
+      ? {
+          ...baseTransform,
+          x: clamp(baseTransform.x + trackedPosition.x, -100, 100),
+          y: clamp(baseTransform.y + trackedPosition.y, -100, 100),
+        }
+      : baseTransform;
   const isImage = item.mediaType === 'image';
   const left = isImage ? region.xPct + (region.widthPct * transform.x) / 200 : region.xPct;
   const top = isImage ? region.yPct + (region.heightPct * transform.y) / 200 : region.yPct;
@@ -320,7 +362,7 @@ export function CompositionEditorPage() {
       }
     : {};
   const videoStyle: CSSProperties = composition && playbackVideoItem
-    ? getVisualStyle(composition, playbackVideoItem, dragPreview)
+    ? getVisualStyle(composition, playbackVideoItem, dragPreview, state.playheadMs)
     : {};
   const regionFrameStyle: CSSProperties = selectedRegion
     ? {
@@ -802,15 +844,22 @@ export function CompositionEditorPage() {
   }
 
   async function generateCutsFromLayout() {
-    const savedComposition = state.isDirty ? await persistComposition() : composition;
-    if (!savedComposition || !project || !project.isLayoutDraft) {
+    if (isGeneratingClips || isSaving || !composition || !project || !project.isLayoutDraft) {
       return;
     }
+
     const currentProjectId = project.id;
 
     try {
       setIsGeneratingClips(true);
       setError('');
+      setMessage('Salvando o layout e preparando a geração dos cortes...');
+      const savedComposition = state.isDirty ? await persistComposition() : composition;
+      if (!savedComposition) {
+        return;
+      }
+
+      setMessage('Gerando cortes e preparando-os para revisão. Isso pode levar alguns instantes...');
       const generatedProject = await generateProjectClips(currentProjectId);
       const firstComposition = generatedProject.compositions[0];
       setProject(generatedProject);
@@ -822,8 +871,8 @@ export function CompositionEditorPage() {
       }
 
       setMessage('Layout salvo. Cortes gerados para revisão.');
-    } catch {
-      setError('Nao foi possivel gerar os cortes a partir deste layout.');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Nao foi possivel gerar os cortes a partir deste layout.');
     } finally {
       setIsGeneratingClips(false);
     }
@@ -871,9 +920,9 @@ export function CompositionEditorPage() {
             {isSaving ? 'Salvando...' : 'Salvar rascunho'}
           </button>
           {project.isLayoutDraft ? (
-            <button className="composition-next" type="button" disabled={isSaving || isGeneratingClips} onClick={() => void generateCutsFromLayout()}>
-              <Scissors size={16} />
-              {isGeneratingClips ? 'Gerando cortes...' : 'Salvar layout e gerar cortes'}
+            <button className="composition-next" type="button" aria-busy={isSaving || isGeneratingClips} disabled={isSaving || isGeneratingClips} onClick={() => void generateCutsFromLayout()}>
+              {isGeneratingClips ? <LoaderCircle className="composition-generation-spinner" size={16} /> : <Scissors size={16} />}
+              {isGeneratingClips ? 'Gerando cortes...' : isSaving ? 'Salvando layout...' : 'Salvar layout e gerar cortes'}
             </button>
           ) : (
             <button className="composition-approve" type="button" disabled={isSaving || composition.status === 'approved'} onClick={() => void approveCurrentComposition()}>
@@ -889,6 +938,27 @@ export function CompositionEditorPage() {
           )}
         </div>
       </header>
+
+      {isGeneratingClips && (
+        <div className="composition-generation-status" role="status" aria-live="polite">
+          <LoaderCircle className="composition-generation-spinner" size={19} />
+          <div>
+            <strong>{isSaving ? 'Salvando o layout...' : 'Gerando cortes...'}</strong>
+            <span>{isSaving ? 'Aguarde enquanto as alterações são salvas.' : 'O ClipCut está criando os cortes e preparando-os para revisão. Não feche esta janela.'}</span>
+          </div>
+        </div>
+      )}
+
+      {!project.isLayoutDraft && !isGeneratingClips && (
+        <div className={`composition-generation-result${project.generationWarning ? ' has-warning' : ''}`} role="status">
+          {project.generationWarning ? <CircleAlert size={18} /> : <Check size={18} />}
+          <div>
+            {project.generationWarning && <span className="composition-generation-warning">{project.generationWarning}</span>}
+            <strong>{project.compositions.length} {project.compositions.length === 1 ? 'corte gerado' : 'cortes gerados'} e salvos</strong>
+            <span>Os cortes estão prontos para revisão. A exportação dos arquivos MP4 acontece depois, na Galeria.</span>
+          </div>
+        </div>
+      )}
 
       <section className="composition-workspace">
         <aside className="composition-panel proposal-panel">
@@ -1010,7 +1080,7 @@ export function CompositionEditorPage() {
             {captionSettings.mode !== 'none' && previewCaptionText && (
               <div
                 className={`composition-caption-overlay ${captionSettings.displayMode === 'word' ? 'word' : ''}`}
-                style={{ ...previewCaptionStyle, fontFamily: getSubtitleFont(captionSettings.font || 'inter').cssFamily }}
+                style={{ ...previewCaptionStyle, fontFamily: getSubtitleFont(captionSettings.font || 'geist').cssFamily }}
                 aria-label="Prévia da legenda"
               >
                 {previewCaptionText}

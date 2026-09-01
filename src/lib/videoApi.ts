@@ -1,4 +1,4 @@
-import type { Canvas, Composition, LayoutConfig, Project, ProjectAsset, ProjectSummary } from '../features/editor/domain/editor.types';
+import type { Canvas, CaptionSettings, Composition, LayoutConfig, Project, ProjectAsset, ProjectSummary } from '../features/editor/domain/editor.types';
 import type {
   EditorialConfig,
   EditorialProviderStatus,
@@ -33,8 +33,37 @@ export type AudienceRecommendation = {
   durationSeconds: number;
   intensity: number;
   score: number;
-  source: 'youtube-most-replayed';
+  source: 'youtube-most-replayed' | 'local-ai';
   rank: number;
+  reason?: string;
+  signals?: {
+    speech?: number;
+    hook?: number;
+    visual?: number;
+    face?: number;
+    prompt?: number;
+    pauses?: number;
+    fillers?: number;
+  };
+};
+
+export type BrollSuggestion = {
+  id: string;
+  startSeconds: number;
+  endSeconds: number;
+  title: string;
+  prompt: string;
+  reason: string;
+  source: 'transcript-keywords';
+  status: 'suggested' | 'used';
+};
+
+export type VoiceoverAsset = {
+  id: string;
+  type: 'audio';
+  name: string;
+  fileName: string;
+  url: string;
 };
 
 export type AudienceInsight = {
@@ -64,6 +93,7 @@ export type GeneratedClip = {
   subtitleFont?: string;
   subtitlePosition?: string;
   subtitleDisplayMode?: string;
+  subtitleEffect?: string;
   subtitleLanguage?: string;
   subtitlePath?: string | null;
   subtitleError?: string | null;
@@ -71,7 +101,9 @@ export type GeneratedClip = {
   subtitleCorrections?: number;
   audioMode?: string;
   recommendationScore?: number;
-  recommendationSource?: 'youtube-most-replayed';
+  recommendationSource?: 'youtube-most-replayed' | 'local-ai';
+  recommendationReason?: string;
+  recommendationPrompt?: string;
 };
 
 export type ExportJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
@@ -94,6 +126,7 @@ export type ExportJobClipResult = {
   subtitleFont?: string;
   subtitlePosition?: string;
   subtitleDisplayMode?: string;
+  subtitleEffect?: string;
   subtitleLanguage?: string;
   subtitlePath?: string | null;
   subtitleSource?: string | null;
@@ -127,8 +160,13 @@ export type ExportJob = {
     subtitleFont: string;
     subtitlePosition: string;
     subtitleDisplayMode: string;
+    subtitleEffect?: string;
     subtitleLanguage: string;
     audioMode: string;
+    audioEnhancement?: boolean;
+    removeSilence?: boolean;
+    removeFillers?: boolean;
+    voiceoverAsset?: VoiceoverAsset | null;
   };
   clipResults: ExportJobClipResult[];
   outputPaths?: string[];
@@ -160,8 +198,13 @@ export type GalleryPackage = {
   subtitleFont: string;
   subtitlePosition: string;
   subtitleDisplayMode?: string;
+  subtitleEffect?: string;
   subtitleCorrections?: number;
   audioMode: string;
+  audioEnhancement?: boolean;
+  removeSilence?: boolean;
+  removeFillers?: boolean;
+  voiceoverAsset?: Pick<VoiceoverAsset, 'id' | 'name'> | null;
   clips: GeneratedClip[];
 };
 
@@ -183,6 +226,36 @@ export type VideoAnalysis = {
       sampledFrames?: number;
       framesWithFaces?: number;
       maxFaces?: number;
+      faceSamples?: Array<{
+        timeSeconds: number;
+        faceCount: number;
+        faces?: Array<{
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+          centerX: number;
+          centerY: number;
+          confidence?: number;
+        }>;
+        primaryFace?: {
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+          centerX: number;
+          centerY: number;
+          confidence?: number;
+        } | null;
+        motion?: number;
+      }>;
+      faceTracking?: Array<{
+        timeMs: number;
+        x: number;
+        y: number;
+        scale: number;
+        rotation?: number;
+      }>;
     };
     pyannote?: AiToolResult & {
       turns?: unknown[];
@@ -192,6 +265,7 @@ export type VideoAnalysis = {
       response?: string;
     };
   };
+  brollSuggestions?: BrollSuggestion[];
 };
 
 export type AiToolResult = {
@@ -262,9 +336,10 @@ export async function listGeneratedClips() {
 export async function generateVideoClips(
   id: string,
   options: {
-    mode: 'duration' | 'count' | 'recommended';
+    mode: 'duration' | 'count' | 'recommended' | 'best-moments';
     targetDurationSeconds: number;
     targetClipCount: number;
+    focusPrompt?: string;
   },
 ) {
   const response = await fetch(`/api/videos/${id}/clips`, {
@@ -342,6 +417,11 @@ export async function exportClipsToGallery(payload: {
   subtitleDisplayMode: string;
   subtitleLanguage: string;
   audioMode: string;
+  captionSettings?: CaptionSettings;
+  audioEnhancement?: boolean;
+  removeSilence?: boolean;
+  removeFillers?: boolean;
+  voiceoverAsset?: VoiceoverAsset | null;
 }) {
   const response = await fetch('/api/gallery/export', {
     method: 'POST',
@@ -355,6 +435,21 @@ export async function exportClipsToGallery(payload: {
 
   const data = (await response.json()) as { job: ExportJob };
   return data.job;
+}
+
+export async function uploadAudioAsset(file: File) {
+  const formData = new FormData();
+  formData.append('audio', file);
+
+  const response = await fetch('/api/audio-assets', {
+    method: 'POST',
+    body: formData,
+  });
+
+  await assertApiResponse(response);
+
+  const data = (await response.json()) as { asset: VoiceoverAsset };
+  return data.asset;
 }
 
 export async function deleteUploadedVideo(id: string) {

@@ -1,29 +1,102 @@
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Anton&family=Bebas+Neue&family=Geist:wght@400;500;600;700;800&family=Montserrat:wght@600;700;800;900&family=Oswald:wght@400;500;600;700&family=Poppins:wght@400;500;600;700;800&display=swap');
 
 :root {
   color-scheme: dark;
-  --cc-bg: #0c0f14;
-  --cc-sidebar: #10141b;
-  --cc-panel: #171c24;
-  --cc-elevated: #202630;
-  --cc-pressed: #0e1218;
-  --cc-border: #2a3340;
-  --cc-text: #f4f5f7;
-  --cc-muted: #929dad;
-  --cc-yellow: #ffd369;
-  --cc-mint: #65e0ba;
-  --cc-lilac: #9a87ff;
-  --cc-danger: #ff817c;
-  --cc-font-family: 'Poppins', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --cc-gradient: linear-gradient(120deg, #ffd369 0%, #65e0ba 52%, #9a87ff 100%);
+  --background: #08090f;
+  --background-secondary: #0d0e16;
+  --surface: #151225;
+  --surface-elevated: #201938;
+  --purple-darkest: #1a102f;
+  --purple-dark: #2c1a50;
+  --purple-base: #51338d;
+  --purple-medium: #7656c9;
+  --purple-light: #9b7cf2;
+  --purple-highlight: #c5b5ff;
+  --border-subtle: rgb(174 148 255 / 22%);
+  --border-highlight: rgb(203 188 255 / 45%);
+  --text-primary: #f5f2ff;
+  --text-secondary: #aaa2bf;
+  --text-muted: #777186;
+  --success: #72dba5;
+  --warning: #f2c96d;
+  --danger: #ef7085;
+  --purple-soft: rgb(118 86 201 / 14%);
+  --purple-glow: rgb(155 124 242 / 18%);
+  --purple-glow-subtle: rgb(155 124 242 / 10%);
+  --border-button: rgb(203 188 255 / 32%);
+  --border-active: rgb(197 181 255 / 55%);
+  --focus-ring: 0 0 0 3px rgb(118 86 201 / 18%);
+  --success-soft: rgb(114 219 165 / 10%);
+  --warning-soft: rgb(242 201 109 / 10%);
+  --danger-soft: rgb(239 112 133 / 10%);
+
+  /* Existing component aliases stay wired to the shared theme tokens. */
+  --cc-bg: var(--background);
+  --cc-sidebar: var(--background-secondary);
+  --cc-panel: var(--surface);
+  --cc-elevated: var(--surface-elevated);
+  --cc-pressed: var(--background);
+  --cc-border: var(--border-subtle);
+  --cc-text: var(--text-primary);
+  --cc-muted: var(--text-secondary);
+  --cc-yellow: var(--warning);
+  --cc-mint: var(--success);
+  --cc-lilac: var(--purple-light);
+  --cc-danger: var(--danger);
+  --ink: var(--text-primary);
+  --muted: var(--text-secondary);
+  --panel: var(--surface);
+  --line: var(--border-subtle);
+  --green: var(--success);
+  --teal: var(--purple-medium);
+  --blue: var(--purple-base);
+  --coral: var(--danger);
+  --amber: var(--warning);
+  --cc-font-family: 'Geist', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --cc-gradient: linear-gradient(145deg, #9b7cf2 0%, #7656c9 22%, #51338d 55%, #2c1a50 82%, #1a102f 100%);
+  --cc-gradient-button:
+    linear-gradient(180deg, rgb(255 255 255 / 12%) 0%, rgb(255 255 255 / 0%) 35%),
+    linear-gradient(145deg, #7656c9, #51338d 55%, #2c1a50);
+  --cc-gradient-panel:
+    linear-gradient(145deg, rgb(197 181 255 / 5.5%) 0%, rgb(197 181 255 / 0%) 32%),
+    linear-gradient(165deg, #201938 0%, #151225 58%, #1a102f 100%);
+  --cc-gradient-input: linear-gradient(165deg, var(--background-secondary), var(--purple-darkest));
+  --cc-gradient-selected: linear-gradient(145deg, rgb(118 86 201 / 32%), rgb(44 26 80 / 62%));
+  --cc-gradient-dropzone: linear-gradient(145deg, rgb(81 51 141 / 16%), rgb(13 14 22 / 78%));
   --cc-radius-xl: 28px;
   --cc-radius-lg: 24px;
   --cc-radius-md: 18px;
   --cc-radius-sm: 12px;
-  --cc-shadow-panel: 0 22px 60px rgb(0 0 0 / 24%), inset 0 1px 0 rgb(255 255 255 / 3%);
-  --cc-shadow-raised: 0 12px 24px rgb(0 0 0 / 20%), inset 0 1px 0 rgb(255 255 255 / 4%);
-  --cc-shadow-pressed: inset 0 2px 7px rgb(0 0 0 / 28%), 0 1px 0 rgb(255 255 255 / 3%);
-  --cc-transition: 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --cc-shadow-panel:
+    0 24px 68px rgb(0 0 0 / 38%),
+    inset 0 1px 0 rgb(203 188 255 / 12%),
+    inset 0 -1px 0 rgb(26 16 47 / 88%);
+  --cc-shadow-raised:
+    0 12px 26px rgb(0 0 0 / 35%),
+    inset 0 1px 0 rgb(203 188 255 / 10%),
+    inset 0 -1px 0 rgb(26 16 47 / 80%);
+  --cc-shadow-pressed:
+    inset 0 3px 10px rgb(8 9 15 / 52%),
+    0 2px 0 rgb(19 12 37 / 90%);
+  --cc-shadow-button:
+    0 5px 0 var(--purple-darkest),
+    0 10px 22px rgb(0 0 0 / 40%),
+    0 0 18px var(--purple-glow-subtle),
+    inset 0 1px 0 rgb(255 255 255 / 16%);
+  --cc-shadow-button-pressed:
+    0 2px 0 var(--purple-darkest),
+    inset 0 3px 8px rgb(8 4 18 / 45%),
+    inset 0 1px 0 rgb(255 255 255 / 8%);
+  --cc-transition: 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --cc-space-1: 4px;
+  --cc-space-2: 8px;
+  --cc-space-3: 12px;
+  --cc-space-4: 16px;
+  --cc-space-5: 20px;
+  --cc-space-6: 24px;
+  --cc-space-7: 32px;
+  --cc-space-8: 40px;
+  --cc-copy-measure: 68ch;
 }
 
 * {
@@ -32,7 +105,7 @@
 
 html {
   min-width: 320px;
-  background: var(--cc-bg);
+  background: var(--background);
 }
 
 body {
@@ -40,10 +113,10 @@ body {
   margin: 0;
   overflow-x: hidden;
   background:
-    radial-gradient(circle at 76% -10%, rgb(154 135 255 / 7%), transparent 31rem),
-    radial-gradient(circle at 10% 100%, rgb(101 224 186 / 4%), transparent 34rem),
-    var(--cc-bg);
-  color: var(--cc-text);
+    radial-gradient(circle at 78% -12%, rgb(118 86 201 / 14%), transparent 32rem),
+    radial-gradient(circle at 9% 100%, rgb(81 51 141 / 10%), transparent 38rem),
+    var(--background);
+  color: var(--text-primary);
   font-family: var(--cc-font-family);
   -webkit-font-smoothing: antialiased;
 }
@@ -56,8 +129,8 @@ body::before {
   opacity: 0.12;
   content: "";
   background-image:
-    radial-gradient(rgb(255 255 255 / 18%) 0.55px, transparent 0.55px),
-    linear-gradient(115deg, transparent 0 48%, rgb(255 255 255 / 2%) 49% 50%, transparent 51%);
+    radial-gradient(rgb(197 181 255 / 10%) 0.55px, transparent 0.55px),
+    linear-gradient(115deg, transparent 0 48%, rgb(197 181 255 / 2%) 49% 50%, transparent 51%);
   background-position: 0 0, 0 0;
   background-size: 5px 5px, 13rem 13rem;
   mix-blend-mode: soft-light;
@@ -95,13 +168,13 @@ a:focus-visible,
 select:focus-visible,
 input:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid var(--cc-lilac);
+  outline: 2px solid var(--purple-highlight);
   outline-offset: 3px;
 }
 
 ::selection {
-  background: rgb(101 224 186 / 24%);
-  color: var(--cc-text);
+  background: rgb(118 86 201 / 35%);
+  color: var(--text-primary);
 }
 
 h1,
@@ -1668,6 +1741,887 @@ button:disabled {
   }
 }
 
+/* Spacing and reading rhythm */
+
+body {
+  line-height: 1.45;
+}
+
+p:not(.eyebrow),
+li,
+label,
+small {
+  line-height: 1.5;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  line-height: 1.16;
+}
+
+.workspace {
+  padding-top: clamp(30px, 3.2vw, 48px) !important;
+  padding-bottom: clamp(64px, 7vw, 96px) !important;
+}
+
+.workflow-workspace,
+.editorial-page,
+.studio-page {
+  gap: var(--cc-space-7) !important;
+}
+
+.workflow-heading,
+.files-heading,
+.projects-heading,
+.editor-heading,
+.studio-topbar,
+.editorial-section-heading {
+  align-items: flex-start !important;
+  row-gap: var(--cc-space-5) !important;
+  margin-bottom: var(--cc-space-7) !important;
+}
+
+.workflow-heading > div:first-child,
+.files-heading > div:first-child,
+.projects-heading > div:first-child,
+.editor-heading > div:first-child,
+.studio-topbar > div:first-child {
+  min-width: 0;
+}
+
+.workflow-heading h1,
+.files-heading h1,
+.projects-heading h1,
+.editor-heading h1,
+.studio-topbar h1 {
+  margin-bottom: var(--cc-space-3) !important;
+  line-height: 1.04 !important;
+}
+
+.workflow-heading p:not(.eyebrow),
+.files-heading p:not(.eyebrow),
+.projects-heading p:not(.eyebrow),
+.editor-heading p:not(.eyebrow),
+.studio-lede,
+.editorial-hero p:last-child {
+  max-width: var(--cc-copy-measure);
+  margin-bottom: 0 !important;
+  line-height: 1.65 !important;
+}
+
+.files-heading-actions,
+.workflow-actions,
+.workflow-heading-actions,
+.studio-status,
+.video-modal-actions,
+.layout-setup-footer > div {
+  gap: var(--cc-space-3) !important;
+}
+
+.cc-step-indicator,
+.workflow-steps {
+  margin-bottom: var(--cc-space-7) !important;
+  padding: var(--cc-space-3) var(--cc-space-4) !important;
+}
+
+.cc-step,
+.workflow-step {
+  min-height: 44px;
+  padding: 8px 12px !important;
+  line-height: 1.35 !important;
+}
+
+.cc-panel,
+.route-panel,
+.workflow-card,
+.generator-panel,
+.preview-panel,
+.clips-panel,
+.audio-panel,
+.export-panel,
+.editor-panel,
+.editor-stage-panel,
+.project-card,
+.video-card,
+.gallery-package,
+.workflow-review-card,
+.workflow-selection-card,
+.export-job-card,
+.settings-card,
+.editorial-control-card,
+.editorial-composition-card,
+.editorial-dictionary-panel,
+.editorial-evaluation-panel,
+.studio-card {
+  padding: clamp(20px, 2.4vw, 30px) !important;
+}
+
+.workflow-card-header,
+.panel-heading,
+.studio-card-heading,
+.preview-header,
+.export-job-header {
+  row-gap: var(--cc-space-4) !important;
+}
+
+.workflow-card-header:not(.editorial-composition-header),
+.panel-heading,
+.studio-card-heading,
+.preview-header {
+  margin-bottom: var(--cc-space-5) !important;
+}
+
+.workflow-card-header h2,
+.panel-heading h2,
+.workflow-review-card h2,
+.workflow-selection-card h2,
+.editorial-composition-card h2,
+.studio-card-heading h2,
+.preview-header h2 {
+  margin-bottom: var(--cc-space-3) !important;
+  line-height: 1.2 !important;
+}
+
+.workflow-card-header p,
+.panel-heading p,
+.workflow-review-card p,
+.workflow-selection-card p {
+  line-height: 1.6 !important;
+}
+
+.workflow-form-grid,
+.settings-grid,
+.editor-control-grid {
+  column-gap: var(--cc-space-6) !important;
+  row-gap: var(--cc-space-5) !important;
+  margin-top: var(--cc-space-6) !important;
+}
+
+.content-grid,
+.editor-grid,
+.editorial-lower-grid,
+.social-layout-grid,
+.video-editor-layout,
+.bulk-main-grid {
+  gap: var(--cc-space-6) !important;
+}
+
+.files-grid,
+.projects-grid,
+.gallery-grid,
+.workflow-selection-list,
+.editorial-composition-list,
+.workflow-review-list,
+.export-job-list {
+  gap: var(--cc-space-5) !important;
+}
+
+.right-column,
+.editorial-compositions-section,
+.bulk-layout,
+.ai-result,
+.video-modal-ai {
+  gap: var(--cc-space-5) !important;
+}
+
+.workflow-field,
+.setting-control,
+.workflow-project-select,
+.studio-field,
+.editor-field,
+.workflow-caption-cue {
+  gap: 10px !important;
+  line-height: 1.5;
+}
+
+.workflow-field-help,
+.workflow-caption-editor-heading p,
+.workflow-caption-save-row,
+.editor-helper {
+  line-height: 1.6 !important;
+}
+
+.workflow-actions {
+  row-gap: var(--cc-space-3) !important;
+  margin-top: var(--cc-space-6) !important;
+  padding-top: var(--cc-space-5) !important;
+}
+
+.workflow-message,
+.workflow-error,
+.generator-message {
+  margin: 0 !important;
+  padding: var(--cc-space-3) var(--cc-space-4) !important;
+  line-height: 1.55 !important;
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+select,
+textarea {
+  line-height: 1.45;
+}
+
+.cc-inspector-section {
+  padding: var(--cc-space-5) 0 !important;
+}
+
+.cc-inspector-heading {
+  gap: 10px !important;
+  margin-bottom: var(--cc-space-3) !important;
+}
+
+.cc-video-card-body,
+.cc-clip-card-body,
+.video-card-copy,
+.video-ai-actions,
+.video-audience-recommendations {
+  padding: var(--cc-space-5) !important;
+}
+
+.cc-video-card-actions,
+.cc-clip-card-actions {
+  gap: var(--cc-space-3) !important;
+  margin-top: var(--cc-space-4) !important;
+}
+
+.video-card-copy,
+.video-ai-actions {
+  gap: var(--cc-space-4) !important;
+}
+
+.empty-state,
+.files-empty,
+.projects-empty,
+.workflow-empty,
+.gallery-empty,
+.cc-empty-state {
+  gap: var(--cc-space-4) !important;
+}
+
+.empty-state h2,
+.files-empty h2,
+.projects-empty h2,
+.workflow-empty h2,
+.gallery-empty h2,
+.cc-empty-state h2 {
+  margin-bottom: var(--cc-space-2) !important;
+}
+
+.empty-state p,
+.files-empty p,
+.projects-empty p,
+.workflow-empty p,
+.gallery-empty p,
+.cc-empty-state p {
+  line-height: 1.65 !important;
+}
+
+.ai-status-panel {
+  gap: var(--cc-space-3) !important;
+  margin: 0 0 var(--cc-space-6) !important;
+}
+
+.settings-content {
+  width: min(100%, 1040px) !important;
+}
+
+.settings-heading {
+  margin-bottom: var(--cc-space-7) !important;
+}
+
+.settings-heading h1 {
+  margin-bottom: var(--cc-space-3) !important;
+  line-height: 1.08 !important;
+}
+
+.settings-heading > p:last-child {
+  line-height: 1.65 !important;
+}
+
+.settings-grid {
+  gap: var(--cc-space-6) !important;
+}
+
+.settings-card {
+  gap: var(--cc-space-5) !important;
+  min-height: 204px;
+}
+
+.settings-card h2 {
+  margin-bottom: var(--cc-space-3) !important;
+}
+
+.settings-card p:not(.eyebrow):not(.settings-message) {
+  margin-bottom: var(--cc-space-5) !important;
+  line-height: 1.65 !important;
+}
+
+.editor-grid {
+  align-items: start;
+}
+
+.editor-stage-toolbar {
+  margin-bottom: var(--cc-space-5) !important;
+}
+
+.manual-controls,
+.layer-picker,
+.layer-toggles,
+.editor-ai-panel,
+.overlay-list,
+.editor-control-group {
+  gap: var(--cc-space-4) !important;
+}
+
+.editor-control-group {
+  margin-top: var(--cc-space-6) !important;
+  padding-top: var(--cc-space-5) !important;
+}
+
+.editorial-page {
+  gap: var(--cc-space-8) !important;
+}
+
+.editorial-hero {
+  gap: var(--cc-space-6) !important;
+  padding: clamp(24px, 3vw, 36px) !important;
+}
+
+.editorial-control-card {
+  gap: var(--cc-space-7) !important;
+}
+
+.editorial-control-card .workflow-card-header {
+  padding-bottom: var(--cc-space-6) !important;
+}
+
+.editorial-lower-grid {
+  gap: var(--cc-space-6) !important;
+}
+
+.editorial-composition-list,
+.editorial-compositions-section {
+  gap: var(--cc-space-6) !important;
+}
+
+.editorial-composition-header {
+  gap: var(--cc-space-6) !important;
+  padding: var(--cc-space-7) !important;
+}
+
+.editorial-reasons {
+  margin: var(--cc-space-6) var(--cc-space-7) 0 !important;
+  padding: var(--cc-space-5) var(--cc-space-6) !important;
+}
+
+.editorial-metadata {
+  gap: var(--cc-space-5) var(--cc-space-6) !important;
+  margin: var(--cc-space-7) var(--cc-space-7) var(--cc-space-8) !important;
+  padding-top: var(--cc-space-6) !important;
+}
+
+.studio-page {
+  gap: var(--cc-space-7) !important;
+}
+
+.studio-page .studio-topbar {
+  margin-bottom: var(--cc-space-6) !important;
+}
+
+.studio-tabs {
+  margin-bottom: var(--cc-space-6) !important;
+  padding: 6px !important;
+}
+
+.studio-card-heading {
+  margin-bottom: var(--cc-space-6) !important;
+}
+
+.inspector-group,
+.editor-control-group {
+  gap: var(--cc-space-4) !important;
+}
+
+.inspector-group {
+  margin-top: var(--cc-space-6) !important;
+  padding-top: var(--cc-space-5) !important;
+}
+
+.feed-canvas-wrap,
+.video-stage-wrap {
+  margin-top: var(--cc-space-2) !important;
+}
+
+.preview-footer {
+  padding-top: var(--cc-space-4) !important;
+}
+
+.new-clip-modal {
+  padding: clamp(20px, 3vw, 30px) !important;
+}
+
+.new-clip-modal h2 {
+  margin-bottom: var(--cc-space-3) !important;
+  line-height: 1.2 !important;
+}
+
+.new-clip-option,
+.new-clip-url-form,
+.new-clip-footer-actions {
+  gap: var(--cc-space-3) !important;
+}
+
+.new-clip-option {
+  padding: var(--cc-space-4) !important;
+}
+
+@media (max-width: 900px) {
+  .workflow-heading,
+  .files-heading,
+  .projects-heading,
+  .editor-heading,
+  .studio-topbar {
+    margin-bottom: var(--cc-space-6) !important;
+  }
+
+  .content-grid,
+  .editor-grid,
+  .editorial-lower-grid,
+  .social-layout-grid,
+  .video-editor-layout,
+  .bulk-main-grid {
+    gap: var(--cc-space-5) !important;
+  }
+
+  .editorial-control-card,
+  .editorial-composition-header {
+    gap: var(--cc-space-5) !important;
+  }
+}
+
+@media (max-width: 680px) {
+  .workspace {
+    padding: 20px 16px 88px !important;
+  }
+
+  .workflow-workspace,
+  .editorial-page,
+  .studio-page {
+    gap: var(--cc-space-6) !important;
+  }
+
+  .workflow-heading,
+  .files-heading,
+  .projects-heading,
+  .editor-heading,
+  .studio-topbar {
+    row-gap: var(--cc-space-4) !important;
+    margin-bottom: var(--cc-space-6) !important;
+  }
+
+  .cc-panel,
+  .route-panel,
+  .workflow-card,
+  .generator-panel,
+  .preview-panel,
+  .clips-panel,
+  .audio-panel,
+  .export-panel,
+  .editor-panel,
+  .editor-stage-panel,
+  .project-card,
+  .video-card,
+  .gallery-package,
+  .workflow-review-card,
+  .workflow-selection-card,
+  .export-job-card,
+  .settings-card,
+  .editorial-control-card,
+  .editorial-composition-card,
+  .editorial-dictionary-panel,
+  .editorial-evaluation-panel,
+  .studio-card {
+    padding: 18px !important;
+  }
+
+  .workflow-form-grid,
+  .settings-grid,
+  .editor-control-grid,
+  .files-grid,
+  .projects-grid,
+  .gallery-grid,
+  .workflow-selection-list,
+  .editorial-composition-list {
+    gap: var(--cc-space-4) !important;
+  }
+
+  .workflow-card-header:not(.editorial-composition-header),
+  .panel-heading,
+  .studio-card-heading,
+  .preview-header {
+    margin-bottom: var(--cc-space-4) !important;
+  }
+
+  .workflow-actions {
+    margin-top: var(--cc-space-5) !important;
+    padding-top: var(--cc-space-4) !important;
+  }
+
+  .editorial-hero {
+    gap: var(--cc-space-4) !important;
+    padding: 20px 18px !important;
+  }
+
+  .editorial-composition-header {
+    padding: 22px 18px 20px !important;
+  }
+
+  .editorial-reasons {
+    margin: var(--cc-space-5) 18px 0 !important;
+  }
+
+  .editorial-metadata {
+    margin: var(--cc-space-6) 18px var(--cc-space-6) !important;
+  }
+
+  .settings-card {
+    min-height: 0;
+  }
+
+  .studio-tabs {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .workspace {
+    padding-right: 14px !important;
+    padding-left: 14px !important;
+  }
+
+  .cc-panel,
+  .route-panel,
+  .workflow-card,
+  .generator-panel,
+  .preview-panel,
+  .clips-panel,
+  .audio-panel,
+  .export-panel,
+  .editor-panel,
+  .editor-stage-panel,
+  .settings-card,
+  .studio-card {
+    padding: 16px !important;
+  }
+
+  .workflow-heading h1,
+  .files-heading h1,
+  .projects-heading h1,
+  .editor-heading h1,
+  .studio-topbar h1 {
+    line-height: 1.08 !important;
+  }
+
+  .workflow-actions,
+  .files-heading-actions,
+  .workflow-heading-actions,
+  .studio-status {
+    width: 100%;
+    justify-content: flex-start !important;
+  }
+}
+
+/* Studio route alignment */
+
+.social-studio,
+.video-studio {
+  --studio-accent: var(--purple-light);
+  --studio-text: var(--text-primary);
+  --studio-muted: var(--text-secondary);
+}
+
+.social-studio .studio-status,
+.video-studio .studio-status,
+.social-studio .preview-meta,
+.social-studio .preview-footer,
+.video-studio .preview-meta,
+.video-studio .preview-footer {
+  color: var(--text-secondary) !important;
+}
+
+.social-studio .studio-kicker,
+.video-studio .studio-kicker,
+.social-studio .studio-tabs button svg,
+.video-studio .studio-tabs button svg,
+.social-studio .schedule-field svg,
+.video-studio .saved-video-icon,
+.video-studio .preview-speed-label,
+.video-studio .control-value,
+.video-studio .range-control strong,
+.video-studio .caption-icon,
+.video-studio .video-icon,
+.video-studio .image-icon {
+  color: var(--purple-light) !important;
+}
+
+.social-studio .studio-card-icon,
+.video-studio .studio-card-icon {
+  border-color: var(--border-button) !important;
+  background: var(--purple-soft) !important;
+  color: var(--purple-light) !important;
+}
+
+.social-studio .feed-canvas-wrap,
+.video-studio .video-stage-wrap {
+  border-color: var(--border-subtle) !important;
+  background:
+    radial-gradient(circle at 50% 12%, var(--purple-soft), transparent 44%),
+    var(--background-secondary) !important;
+  box-shadow: inset 0 1px 0 rgb(203 188 255 / 7%), inset 0 -18px 30px rgb(0 0 0 / 32%) !important;
+}
+
+.social-studio .feed-canvas,
+.video-studio .video-stage {
+  border-color: var(--border-button) !important;
+  background: var(--background) !important;
+  box-shadow: 0 28px 60px rgb(0 0 0 / 48%), 0 0 0 1px rgb(203 188 255 / 12%) !important;
+}
+
+.social-studio .feed-canvas-placeholder,
+.video-studio .stage-empty {
+  background:
+    radial-gradient(circle at 45% 30%, var(--purple-soft), transparent 40%),
+    linear-gradient(145deg, var(--surface-elevated), var(--purple-darkest)) !important;
+  color: var(--text-secondary) !important;
+}
+
+.social-studio .feed-canvas-placeholder svg,
+.video-studio .stage-empty svg,
+.video-studio .video-source-panel > .studio-card-heading > svg,
+.video-studio .video-inspector > .studio-card-heading > svg {
+  color: var(--purple-light) !important;
+}
+
+.social-studio .format-toggle button,
+.social-studio .template-list button,
+.social-studio .asset-chip,
+.social-studio .bulk-post-card,
+.social-studio .bulk-add-card,
+.video-studio .saved-video-option,
+.video-studio .layer-row,
+.video-studio .position-readout span,
+.video-studio .current-image-row,
+.video-studio .music-file-row,
+.video-studio .format-grid button,
+.video-studio .speed-grid button {
+  border-color: var(--border-subtle) !important;
+  background: linear-gradient(160deg, rgb(32 25 56 / 62%), var(--surface) 58%, var(--purple-darkest) 100%) !important;
+  color: var(--text-secondary) !important;
+}
+
+.social-studio .format-toggle button:hover,
+.social-studio .format-toggle button.active,
+.social-studio .template-list button:hover,
+.social-studio .template-list button.active,
+.social-studio .asset-chip.active,
+.social-studio .bulk-post-card:hover,
+.social-studio .bulk-post-card.selected,
+.video-studio .saved-video-option:hover,
+.video-studio .saved-video-option.active,
+.video-studio .layer-row:hover,
+.video-studio .layer-row.active,
+.video-studio .format-grid button:hover,
+.video-studio .format-grid button.active,
+.video-studio .speed-grid button:hover,
+.video-studio .speed-grid button.active {
+  border-color: var(--border-highlight) !important;
+  background: var(--cc-gradient-selected) !important;
+  color: var(--text-primary) !important;
+  box-shadow: inset 3px 0 0 var(--purple-medium), 0 8px 18px rgb(0 0 0 / 28%) !important;
+}
+
+.social-studio .format-toggle button small,
+.social-studio .template-list button small,
+.social-studio .bulk-toolbar-copy p,
+.social-studio .bulk-post-meta,
+.social-studio .bulk-connection p,
+.video-studio .video-upload-button small,
+.video-studio .music-upload small,
+.video-studio .saved-video-option small,
+.video-studio .editor-muted,
+.video-studio .source-divider,
+.video-studio .source-selected > span:last-child,
+.video-studio .layer-row small,
+.video-studio .layer-order,
+.video-studio .timeline-ruler,
+.video-studio .timeline-label,
+.video-studio .timeline-header > span,
+.video-studio .timeline-legend {
+  color: var(--text-muted) !important;
+}
+
+.social-studio .format-toggle button svg,
+.social-studio .template-list button svg,
+.social-studio .asset-chip.active svg,
+.social-studio .summary-note-icon,
+.video-studio .saved-video-option.active > svg,
+.video-studio .editor-helper svg,
+.video-studio .music-file-row > svg,
+.video-studio .layer-row.active svg {
+  color: var(--purple-light) !important;
+}
+
+.social-studio .bulk-post-visual,
+.social-studio .bulk-post-placeholder,
+.social-studio .bulk-post-title button,
+.social-studio .schedule-field,
+.social-studio .schedule-field select {
+  border-color: var(--border-subtle) !important;
+  background: var(--cc-gradient-input) !important;
+  color: var(--text-primary) !important;
+}
+
+.social-studio .bulk-post-copy textarea:focus,
+.social-studio .schedule-field select:focus {
+  border-color: var(--border-highlight) !important;
+  box-shadow: var(--focus-ring) !important;
+}
+
+.social-studio .inspector-group,
+.social-studio .inspector-tip,
+.social-studio .summary-note,
+.social-studio .bulk-post-meta,
+.video-studio .source-divider::before,
+.video-studio .source-divider::after,
+.video-studio .editor-control-group {
+  border-color: var(--border-subtle) !important;
+}
+
+.social-studio .inspector-label-row,
+.social-studio .studio-field,
+.video-studio .control-heading > span,
+.video-studio .range-control span,
+.video-studio .editor-field > span,
+.video-studio .format-fields label,
+.video-studio .transform-fields label {
+  color: var(--text-secondary) !important;
+}
+
+.social-studio .social-checklist .studio-primary-button,
+.video-studio .play-button {
+  border-color: var(--border-button) !important;
+  background: var(--cc-gradient-button) !important;
+  color: var(--text-primary) !important;
+  box-shadow: var(--cc-shadow-button) !important;
+}
+
+.social-studio .social-checklist .studio-primary-button:hover,
+.video-studio .play-button:hover {
+  filter: brightness(1.12) !important;
+}
+
+.social-studio .checklist-item > span,
+.video-studio .layer-grip,
+.video-studio .play-button {
+  border-color: var(--border-button) !important;
+}
+
+.social-studio .completion-ring {
+  border-color: rgb(114 219 165 / 35%) !important;
+  background: conic-gradient(var(--success) 75%, var(--surface-elevated) 0) !important;
+  box-shadow: inset 0 0 0 5px var(--surface) !important;
+}
+
+.video-studio .source-selected {
+  border-left-color: var(--purple-medium) !important;
+  background: linear-gradient(90deg, var(--purple-soft), transparent) !important;
+}
+
+.video-studio .source-selected-label,
+.video-studio .source-selected strong,
+.video-studio .stage-empty strong,
+.video-studio .video-overlay-caption,
+.video-studio .time-readout,
+.video-studio .preview-speed-label {
+  color: var(--text-primary) !important;
+}
+
+.video-studio .stage-video.selected,
+.video-studio .video-overlay-caption.selected,
+.video-studio .video-overlay-image.selected {
+  border-color: var(--purple-light) !important;
+  outline-color: var(--purple-light) !important;
+  box-shadow: 0 0 0 2px var(--purple-soft) !important;
+}
+
+.video-studio .layer-grip {
+  background: var(--cc-gradient-button) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 4px 10px rgb(0 0 0 / 32%), inset 0 1px 0 rgb(255 255 255 / 14%) !important;
+}
+
+.video-studio .preview-scrubber,
+.video-studio .range-control input,
+.video-studio .switch-control input:checked + span,
+.video-studio .switch-control input:checked + span::after {
+  accent-color: var(--purple-light);
+}
+
+.video-studio .switch-control span {
+  background: var(--surface-elevated) !important;
+}
+
+.video-studio .switch-control input:checked + span {
+  background: var(--purple-soft) !important;
+}
+
+.video-studio .switch-control input:checked + span::after {
+  background: var(--purple-light) !important;
+}
+
+.video-studio .video-timeline {
+  border-color: var(--border-subtle) !important;
+  background: var(--cc-gradient-panel) !important;
+}
+
+.video-studio .timeline-track,
+.video-studio .timeline-empty,
+.video-studio .audio-track {
+  border-color: var(--border-subtle) !important;
+  background: var(--background-secondary) !important;
+}
+
+.video-studio .timeline-track > span,
+.video-studio .audio-track > span {
+  border-color: var(--border-button) !important;
+  background: linear-gradient(90deg, var(--purple-soft), var(--purple-glow)) !important;
+}
+
+.video-studio .timeline-track > i,
+.video-studio .video-dot,
+.video-studio .caption-dot,
+.video-studio .audio-dot {
+  background: var(--purple-light) !important;
+  box-shadow: 0 0 10px var(--purple-glow-subtle) !important;
+}
+
+.video-studio .timeline-empty:hover,
+.video-studio .reset-control:hover,
+.video-studio .sound-toggle:hover,
+.video-studio .mini-upload:hover {
+  border-color: var(--border-highlight) !important;
+  color: var(--purple-highlight) !important;
+}
+
+.video-studio .reset-control,
+.video-studio .sound-toggle,
+.video-studio .mini-upload {
+  color: var(--text-secondary) !important;
+}
+
 /* Editorial hero: a quieter reading order with a distinct score rail. */
 .editorial-page .editorial-hero {
   position: relative;
@@ -1843,7 +2797,7 @@ button:disabled {
   }
 }
 
-/* ClipCut type scale: Poppins keeps the interface friendly and readable. */
+/* ClipCut type scale: Geist follows the focused, production-oriented Opus reference. */
 body,
 button,
 input,
@@ -2710,6 +3664,177 @@ small[class*='subtitle'],
   }
 }
 
+/* Compact workspace: keep every route readable on small notebooks and split-screen windows. */
+@media (max-width: 680px) {
+  html,
+  body,
+  #root {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .workspace {
+    width: 100% !important;
+    max-width: 100vw;
+    padding: 18px 12px 88px !important;
+  }
+
+  .workspace > *,
+  .workflow-heading,
+  .files-heading,
+  .projects-heading,
+  .editor-heading,
+  .editorial-hero,
+  .workflow-card,
+  .route-panel,
+  .content-grid,
+  .editor-grid,
+  .settings-grid {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .workflow-heading,
+  .files-heading,
+  .projects-heading,
+  .editor-heading {
+    gap: 16px;
+    margin-bottom: 18px;
+  }
+
+  .workflow-heading h1,
+  .files-heading h1,
+  .projects-heading h1,
+  .editor-heading h1 {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .files-heading-actions,
+  .workflow-actions,
+  .workflow-heading-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .files-heading-actions > *,
+  .workflow-actions > *,
+  .workflow-heading-actions > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .files-heading-actions .new-clip-button,
+  .workflow-heading-actions .workflow-primary,
+  .workflow-heading-actions .workflow-secondary {
+    flex: 1 1 auto;
+  }
+
+  .cc-step-indicator,
+  .workflow-steps {
+    max-width: 100%;
+    margin-bottom: 18px !important;
+  }
+
+  .cc-step-list {
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+
+  .cc-step,
+  .workflow-step {
+    flex: 0 0 auto;
+  }
+
+  .workflow-primary,
+  .workflow-secondary,
+  .primary-action,
+  .secondary-action,
+  .prepare-layout-button,
+  .ai-analyze-button,
+  .new-clip-button {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .workflow-field input,
+  .workflow-field select,
+  .workflow-field textarea,
+  .setting-control input,
+  .setting-control select,
+  .setting-control textarea {
+    max-width: 100%;
+  }
+
+  .files-grid,
+  .projects-grid,
+  .gallery-grid,
+  .workflow-selection-list,
+  .editorial-composition-list {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .video-card,
+  .project-card,
+  .gallery-package,
+  .workflow-selection-card,
+  .workflow-review-card,
+  .editorial-composition-card {
+    width: 100%;
+  }
+
+  .editorial-composition-header,
+  .editorial-section-heading,
+  .editorial-control-card .workflow-card-header {
+    min-width: 0;
+  }
+
+  .editorial-composition-header h2,
+  .editorial-composition-header p,
+  .editorial-reasons li,
+  .editorial-metadata-footer > span {
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 560px) {
+  .workspace {
+    padding-right: 10px !important;
+    padding-left: 10px !important;
+  }
+
+  .workflow-card,
+  .route-panel,
+  .generator-panel,
+  .preview-panel,
+  .clips-panel,
+  .audio-panel,
+  .export-panel,
+  .editor-panel,
+  .editor-stage-panel {
+    padding: 14px !important;
+  }
+
+  .workflow-heading p:not(.eyebrow),
+  .files-heading p:not(.eyebrow),
+  .projects-heading p:not(.eyebrow),
+  .editor-heading p:not(.eyebrow) {
+    font-size: 13px;
+  }
+
+  .ai-status-panel {
+    gap: 6px;
+  }
+
+  .ai-status-panel span {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+}
+
 /* Navbar: keep the rail geometry stable; only the labels reveal on hover. */
 .sidebar,
 .sidebar-top,
@@ -2989,6 +4114,54 @@ small[class*='subtitle'],
   background: linear-gradient(90deg, #674db5, #b9a9ff) !important;
 }
 
+.generator-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.generator-actions .generate-button {
+  flex: 1 1 240px;
+}
+
+.analysis-action {
+  flex: 0 1 auto;
+}
+
+.tracking-note,
+.generator-ai-note {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 12px 0 0;
+  color: var(--cc-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.tracking-note {
+  color: var(--cc-mint);
+}
+
+.tracking-note svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.caption-presets-grid {
+  margin-top: 14px;
+}
+
+.clip-ai-score {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  color: var(--cc-mint);
+  font-size: 11px;
+  font-weight: 750;
+}
+
 .cc-step-indicator .cc-step.is-current .cc-step-number {
   border-color: #b8a7ff !important;
   background: #674db5 !important;
@@ -3178,5 +4351,955 @@ small[class*='subtitle'],
 @media (max-width: 560px) {
   .editorial-page .editorial-hero-stat {
     grid-column: auto;
+  }
+}
+
+/* Shared controls for the two studio pages. Keep them on the same visual system as the existing workflow. */
+.studio-card {
+  background: linear-gradient(145deg, rgb(21 28 38 / 97%), rgb(15 20 28 / 97%));
+  border-color: #2b3745;
+  box-shadow: 0 24px 70px rgb(0 0 0 / 20%);
+}
+
+.studio-quiet-button,
+.studio-secondary-button {
+  min-height: 42px;
+  color: #dbe4f2;
+  background: #17202b;
+  border: 1px solid #2d3948;
+  border-radius: 12px;
+}
+
+.studio-icon-button {
+  color: #dbe4f2;
+  background: #17202b;
+  border-color: #2d3948;
+  border-radius: 12px;
+}
+
+.studio-quiet-button:hover,
+.studio-secondary-button:hover,
+.studio-icon-button:hover {
+  color: #ffffff;
+  background: #202c3a;
+  border-color: #495b70;
+  transform: translateY(-1px);
+}
+
+.studio-primary-button {
+  min-height: 42px;
+  color: #12151a;
+  background: linear-gradient(135deg, #a395ff, #73ddbd);
+  border: 0;
+  box-shadow: 0 14px 28px rgb(101 223 179 / 12%);
+}
+
+.studio-primary-button:hover {
+  filter: saturate(1.08) brightness(1.05);
+  transform: translateY(-2px);
+  box-shadow: 0 18px 34px rgb(101 223 179 / 18%);
+}
+
+.social-studio .studio-field input,
+.social-studio .studio-field textarea,
+.video-studio .editor-field textarea {
+  color: var(--ink);
+  background: #101721;
+  border-color: #2f3d4d;
+  border-radius: 11px;
+}
+
+.social-studio .studio-field input:focus,
+.social-studio .studio-field textarea:focus,
+.video-studio .editor-field textarea:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgb(152 135 255 / 14%);
+}
+
+/* Bring the new studio routes into the same page rhythm as the existing workflow. */
+.studio-page.workflow-workspace {
+  display: grid;
+  gap: 22px;
+}
+
+.studio-page .studio-topbar {
+  width: 100%;
+  max-width: 1500px;
+  margin: 0 auto;
+}
+
+.studio-page .studio-topbar h1 {
+  max-width: 780px;
+  margin: 4px 0 8px;
+  font-size: clamp(34px, 4vw, 54px);
+  line-height: 0.98;
+}
+
+.studio-page .studio-lede {
+  max-width: 720px;
+  margin: 0;
+  color: var(--cc-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.studio-page .studio-card {
+  border: 1px solid var(--cc-border) !important;
+  border-radius: var(--cc-radius-lg) !important;
+  background: var(--cc-panel) !important;
+  box-shadow: var(--cc-shadow-panel) !important;
+  padding: clamp(18px, 2.2vw, 28px) !important;
+}
+
+.studio-page .studio-tabs {
+  width: min(100%, 1500px);
+  min-height: 62px;
+  align-items: center;
+  margin: 0 auto;
+  padding: 10px 14px;
+  border: 1px solid var(--cc-border);
+  border-radius: var(--cc-radius-md);
+  background: rgb(14 18 24 / 86%);
+  box-shadow: var(--cc-shadow-pressed);
+}
+
+.studio-page .studio-tabs button {
+  min-height: 38px;
+  padding: 5px 10px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  color: #738094;
+  font-size: 11px;
+}
+
+.studio-page .studio-tabs button.active {
+  border-color: rgb(154 135 255 / 38%);
+  color: var(--cc-text);
+  background: rgb(154 135 255 / 10%);
+  box-shadow: none;
+}
+
+.studio-page .studio-tabs button span {
+  border: 1px solid var(--cc-border);
+  background: var(--cc-panel);
+  color: #8290a1;
+}
+
+.studio-page .studio-tabs button.active span {
+  border-color: rgb(255 211 105 / 50%);
+  background: var(--cc-yellow);
+  color: #1a1e24;
+}
+
+.studio-page .studio-primary-button {
+  border: 1px solid rgb(255 255 255 / 18%) !important;
+  background: var(--cc-gradient) !important;
+  color: #151a20 !important;
+  box-shadow: 0 8px 18px rgb(101 224 186 / 10%), inset 0 1px 0 rgb(255 255 255 / 35%) !important;
+}
+
+.studio-page .studio-secondary-button,
+.studio-page .studio-quiet-button,
+.studio-page .studio-icon-button {
+  border: 1px solid var(--cc-border) !important;
+  background: var(--cc-elevated) !important;
+  color: var(--cc-text) !important;
+  box-shadow: var(--cc-shadow-raised) !important;
+}
+
+.studio-page .studio-primary-button:hover,
+.studio-page .studio-secondary-button:hover,
+.studio-page .studio-quiet-button:hover,
+.studio-page .studio-icon-button:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+}
+
+.studio-page .upload-asset-button,
+.studio-page .video-upload-button,
+.studio-page .music-upload,
+.studio-page .empty-layer-upload {
+  border: 1px solid var(--cc-border);
+  border-radius: 12px;
+  background: var(--cc-elevated);
+  color: var(--cc-text);
+  box-shadow: var(--cc-shadow-raised);
+}
+
+.studio-page .upload-asset-button:hover,
+.studio-page .video-upload-button:hover,
+.studio-page .music-upload:hover,
+.studio-page .empty-layer-upload:hover {
+  border-color: rgb(154 135 255 / 48%);
+  background: #273244;
+  color: var(--cc-text);
+  transform: translateY(-1px);
+}
+
+.prompt-control {
+  grid-column: 1 / -1;
+}
+
+.prompt-control small,
+.smart-audio-option small,
+.voiceover-upload-control small,
+.smart-audio-note,
+.broll-suggestions > p {
+  color: var(--cc-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.prompt-control input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--cc-border);
+  border-radius: 10px;
+  background: rgb(11 14 20 / 58%);
+  color: var(--cc-text);
+}
+
+.clip-ai-reason {
+  color: var(--cc-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.broll-suggestions,
+.smart-audio-settings {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+  padding: 18px;
+  border: 1px solid rgb(126 135 156 / 22%);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgb(31 35 49 / 92%), rgb(20 23 32 / 88%));
+}
+
+.broll-suggestions-heading,
+.smart-audio-option,
+.voiceover-upload {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.broll-suggestions-heading {
+  justify-content: space-between;
+}
+
+.broll-suggestions-heading h2,
+.smart-audio-settings h2 {
+  margin: 2px 0 0;
+  color: var(--cc-text);
+  font-size: 18px;
+}
+
+.broll-suggestions-heading > span {
+  color: #b9a9ff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.broll-suggestion-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.broll-suggestion {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgb(126 135 156 / 18%);
+  border-radius: 10px;
+  background: rgb(11 14 20 / 48%);
+}
+
+.broll-suggestion > span {
+  color: #73ddbd;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.broll-suggestion strong,
+.broll-suggestion small {
+  overflow-wrap: anywhere;
+}
+
+.broll-suggestion strong {
+  color: var(--cc-text);
+  font-size: 13px;
+}
+
+.broll-suggestion small {
+  color: var(--cc-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.smart-audio-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.smart-audio-option {
+  align-items: flex-start;
+  min-height: 70px;
+  padding: 12px;
+  border: 1px solid rgb(126 135 156 / 18%);
+  border-radius: 10px;
+  background: rgb(11 14 20 / 42%);
+}
+
+.smart-audio-option input {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  accent-color: #73ddbd;
+}
+
+.smart-audio-option span,
+.voiceover-upload-control {
+  display: grid;
+  gap: 3px;
+}
+
+.smart-audio-option strong,
+.voiceover-upload-control strong {
+  color: var(--cc-text);
+  font-size: 13px;
+}
+
+.voiceover-upload {
+  min-height: 58px;
+  padding: 11px 12px;
+  border: 1px dashed rgb(115 221 189 / 42%);
+  border-radius: 10px;
+  background: rgb(115 221 189 / 5%);
+  color: #73ddbd;
+}
+
+.voiceover-upload-control {
+  position: relative;
+  flex: 1;
+  cursor: pointer;
+}
+
+.voiceover-upload-control input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.voiceover-upload > button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--cc-muted);
+}
+
+.voiceover-upload > button:hover,
+.voiceover-upload > button:focus-visible {
+  background: rgb(255 129 124 / 12%);
+  color: #ff817c;
+}
+
+@media (max-width: 640px) {
+  .prompt-control,
+  .broll-suggestions,
+  .smart-audio-settings {
+    grid-column: auto;
+  }
+
+  .broll-suggestions,
+  .smart-audio-settings {
+    padding: 14px;
+  }
+}
+
+/* Metallic violet theme */
+
+html,
+body {
+  background: var(--background) !important;
+  color: var(--text-primary);
+}
+
+body {
+  background:
+    radial-gradient(circle at 78% -12%, rgb(118 86 201 / 14%), transparent 32rem),
+    radial-gradient(circle at 9% 100%, rgb(81 51 141 / 10%), transparent 38rem),
+    var(--background) !important;
+}
+
+body::before {
+  opacity: 0.1;
+  background-image:
+    radial-gradient(rgb(197 181 255 / 10%) 0.55px, transparent 0.55px),
+    linear-gradient(115deg, transparent 0 48%, rgb(197 181 255 / 2%) 49% 50%, transparent 51%);
+}
+
+#root,
+.app-shell,
+.workspace,
+.editorial-page,
+.social-studio,
+.video-studio {
+  background: transparent !important;
+  color: var(--text-primary) !important;
+}
+
+.sidebar {
+  border-color: var(--border-subtle) !important;
+  background: linear-gradient(180deg, var(--surface-elevated) 0%, var(--background-secondary) 42%, var(--background) 100%) !important;
+  box-shadow: 18px 0 44px rgb(0 0 0 / 28%), inset -1px 0 0 rgb(203 188 255 / 7%) !important;
+}
+
+.brand-mark {
+  border-color: var(--border-button) !important;
+  background: var(--cc-gradient) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 7px 16px rgb(0 0 0 / 35%), inset 0 1px 0 rgb(255 255 255 / 18%) !important;
+}
+
+.brand,
+.nav-item,
+.logout-button,
+.topbar,
+.searchbox,
+.sidebar-footer {
+  color: var(--text-secondary) !important;
+}
+
+.nav-item:hover,
+.nav-item:focus-visible,
+.logout-button:hover,
+.logout-button:focus-visible {
+  border-color: var(--border-subtle) !important;
+  background: var(--purple-soft) !important;
+  color: var(--text-primary) !important;
+}
+
+.nav-item.active {
+  border-color: var(--border-button) !important;
+  background: linear-gradient(180deg, rgb(118 86 201 / 28%), rgb(44 26 80 / 38%)) !important;
+  color: var(--text-primary) !important;
+  box-shadow:
+    inset 3px 0 0 var(--purple-medium),
+    inset 0 1px 0 rgb(203 188 255 / 14%),
+    0 8px 18px rgb(0 0 0 / 22%) !important;
+}
+
+.nav-item.active .nav-icon,
+.nav-item:hover .nav-icon,
+.nav-item:focus-visible .nav-icon,
+.brand-mark svg,
+.upload-symbol,
+.panel-heading svg,
+.section-heading svg {
+  color: var(--purple-highlight) !important;
+}
+
+.generator-panel,
+.preview-panel,
+.clips-panel,
+.route-panel,
+.export-panel,
+.workflow-card,
+.workflow-selection-card,
+.workflow-review-card,
+.cc-panel,
+.project-card,
+.gallery-package,
+.video-card,
+.editor-panel,
+.editor-stage-panel,
+.editorial-control-card,
+.editorial-composition-card,
+.editorial-dictionary-panel,
+.editorial-evaluation-panel,
+.studio-card,
+.audio-panel,
+.export-job-card,
+.settings-card,
+.video-modal,
+.layout-setup-modal,
+.new-clip-modal {
+  border-color: var(--border-subtle) !important;
+  background: var(--cc-gradient-panel) !important;
+  color: var(--text-primary) !important;
+  box-shadow: var(--cc-shadow-panel) !important;
+}
+
+.generator-panel,
+.export-panel,
+.editorial-hero,
+.studio-card,
+.new-clip-modal {
+  background:
+    radial-gradient(circle at 85% -20%, rgb(197 181 255 / 9%), transparent 18rem),
+    var(--cc-gradient-panel) !important;
+}
+
+.editorial-hero {
+  border-color: var(--border-subtle) !important;
+  box-shadow: var(--cc-shadow-panel) !important;
+  color: var(--text-primary) !important;
+}
+
+.studio-topbar {
+  border-color: var(--border-subtle) !important;
+  background: transparent !important;
+}
+
+.panel-heading,
+.panel-title,
+.section-heading,
+.workflow-heading,
+.files-heading,
+.projects-heading,
+.gallery-heading,
+.editor-heading,
+.editorial-heading,
+.studio-heading,
+.card-title,
+.project-card h3,
+.video-card h3,
+.gallery-package h3,
+.gallery-clip h4,
+.clip-card strong,
+.video-card strong,
+.workflow-card strong {
+  color: var(--text-primary) !important;
+}
+
+.panel-subtitle,
+.panel-copy,
+.section-copy,
+.workflow-description,
+.workflow-field small,
+.files-subtitle,
+.projects-subtitle,
+.gallery-subtitle,
+.editorial-description,
+.studio-description,
+.muted,
+.helper-text,
+.empty-state-description,
+.clip-card small,
+.video-card small,
+.gallery-clip small {
+  color: var(--text-secondary) !important;
+}
+
+.generator-panel,
+.preview-panel,
+.clips-panel,
+.route-panel,
+.export-panel,
+.workflow-card,
+.workflow-selection-card,
+.workflow-review-card,
+.cc-panel,
+.project-card,
+.gallery-package,
+.video-card,
+.editor-panel,
+.editor-stage-panel,
+.editorial-control-card,
+.editorial-composition-card,
+.editorial-dictionary-panel,
+.editorial-evaluation-panel,
+.studio-card,
+.audio-panel,
+.export-job-card,
+.settings-card {
+  transition: border-color var(--cc-transition), box-shadow var(--cc-transition), filter var(--cc-transition), background var(--cc-transition) !important;
+}
+
+.project-card:hover,
+.gallery-package:hover,
+.video-card:hover,
+.clip-card:hover,
+.gallery-clip:hover,
+.workflow-selection-card:hover,
+.layout-setup-option:hover,
+.layout-image-item:hover {
+  border-color: var(--border-highlight) !important;
+  box-shadow: var(--cc-shadow-raised), 0 0 20px var(--purple-glow-subtle) !important;
+}
+
+.clip-card,
+.gallery-clip,
+.insight-row,
+.layout-setup-option,
+.layout-image-item,
+.media-item-button,
+.ai-tool,
+.smart-audio-option,
+.broll-suggestion,
+.editorial-dimension,
+.timeline-item,
+.caption-item,
+.export-job-card {
+  border-color: var(--border-subtle) !important;
+  background: linear-gradient(160deg, rgb(32 25 56 / 62%), var(--surface) 58%, var(--purple-darkest) 100%) !important;
+  color: var(--text-primary) !important;
+  box-shadow: var(--cc-shadow-raised) !important;
+}
+
+.clip-card.selected,
+.clip-card.is-selected,
+.project-card.active,
+.gallery-clip.active,
+.workflow-selection-card.selected,
+.workflow-selection-card.active,
+.workflow-step.active,
+.layout-setup-option.active,
+.layout-setup-option.selected,
+.layout-image-item.selected,
+.media-item-button.selected,
+.cc-step.is-current,
+.studio-tab.active,
+.studio-tabs button.active {
+  border-color: var(--border-active) !important;
+  background: var(--cc-gradient-selected) !important;
+  color: var(--text-primary) !important;
+  box-shadow:
+    inset 3px 0 0 var(--purple-medium),
+    inset 0 1px 0 rgb(203 188 255 / 16%),
+    0 8px 20px rgb(0 0 0 / 35%) !important;
+}
+
+.chip,
+.badge,
+.status,
+.ai-status-badge,
+.cc-step,
+.workflow-step {
+  border-color: var(--border-subtle) !important;
+  background: var(--purple-soft) !important;
+  color: var(--purple-highlight) !important;
+}
+
+.status.pronto,
+.status.ready,
+.status.success,
+.ai-status-badge.done,
+.ai-status-badge.success,
+.ai-status-panel.ready,
+.ai-tool.ok {
+  border-color: rgb(114 219 165 / 35%) !important;
+  background: var(--success-soft) !important;
+  color: var(--success) !important;
+}
+
+.status.renderizando,
+.status.processing,
+.status.pending,
+.ai-status-badge.processing,
+.ai-status-badge.pending {
+  border-color: rgb(242 201 109 / 35%) !important;
+  background: var(--warning-soft) !important;
+  color: var(--warning) !important;
+}
+
+.status.revisar,
+.status.error,
+.status.erro,
+.ai-status-badge.error,
+.ai-status-badge.failed,
+.new-clip-error {
+  border-color: rgb(239 112 133 / 35%) !important;
+  background: var(--danger-soft) !important;
+  color: var(--danger) !important;
+}
+
+.primary-action,
+.generate-button,
+.workflow-primary,
+.prepare-layout-button,
+.ai-analyze-button,
+.new-clip-button,
+.studio-primary-button,
+.editorial-analyze-button,
+.settings-action {
+  border-color: var(--border-button) !important;
+  background: var(--cc-gradient-button) !important;
+  color: var(--text-primary) !important;
+  box-shadow: var(--cc-shadow-button) !important;
+  transition: transform 150ms ease, box-shadow 150ms ease, filter 150ms ease, border-color 150ms ease !important;
+}
+
+.primary-action:hover,
+.generate-button:hover,
+.workflow-primary:hover,
+.prepare-layout-button:hover,
+.ai-analyze-button:hover,
+.new-clip-button:hover,
+.studio-primary-button:hover,
+.editorial-analyze-button:hover,
+.settings-action:hover {
+  border-color: var(--border-highlight) !important;
+  filter: brightness(1.12) !important;
+}
+
+.primary-action:active,
+.generate-button:active,
+.workflow-primary:active,
+.prepare-layout-button:active,
+.ai-analyze-button:active,
+.new-clip-button:active,
+.studio-primary-button:active,
+.editorial-analyze-button:active,
+.settings-action:active {
+  transform: translateY(2px) !important;
+  box-shadow: var(--cc-shadow-button-pressed) !important;
+  filter: brightness(0.98) !important;
+}
+
+.secondary-action,
+.secondary-action.dark,
+.workflow-secondary,
+.studio-secondary-button,
+.studio-quiet-button,
+.studio-icon-button,
+.icon-button,
+.ghost-button,
+.clip-editor-action,
+.settings-reset,
+.reset-control {
+  border-color: var(--border-subtle) !important;
+  background: linear-gradient(165deg, var(--surface-elevated), var(--background-secondary)) !important;
+  color: var(--text-secondary) !important;
+  box-shadow: var(--cc-shadow-raised) !important;
+  transition: transform 150ms ease, box-shadow 150ms ease, filter 150ms ease, border-color 150ms ease !important;
+}
+
+.secondary-action:hover,
+.secondary-action.dark:hover,
+.workflow-secondary:hover,
+.studio-secondary-button:hover,
+.studio-quiet-button:hover,
+.studio-icon-button:hover,
+.icon-button:hover,
+.ghost-button:hover,
+.clip-editor-action:hover,
+.settings-reset:hover,
+.reset-control:hover {
+  border-color: var(--border-highlight) !important;
+  background: linear-gradient(165deg, var(--surface-elevated), var(--purple-dark)) !important;
+  color: var(--text-primary) !important;
+  filter: brightness(1.08) !important;
+}
+
+.secondary-action:active,
+.secondary-action.dark:active,
+.workflow-secondary:active,
+.studio-secondary-button:active,
+.studio-quiet-button:active,
+.studio-icon-button:active,
+.icon-button:active,
+.ghost-button:active,
+.clip-editor-action:active,
+.settings-reset:active,
+.reset-control:active {
+  transform: translateY(2px) !important;
+  box-shadow: var(--cc-shadow-pressed) !important;
+}
+
+button:disabled,
+button[aria-disabled='true'] {
+  filter: saturate(0.45) !important;
+  opacity: 0.5 !important;
+}
+
+.searchbox,
+.source-input,
+.setting-control input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+.setting-control select,
+.setting-control textarea,
+.workflow-field input,
+.workflow-field select,
+.workflow-field textarea,
+.inspector-fields input,
+.inspector-fields select,
+.inspector-fields textarea,
+.caption-section input,
+.caption-section select,
+.caption-section textarea,
+.editorial-dictionary-form input,
+.editorial-dictionary-form select,
+.studio-field input,
+.studio-field select,
+.studio-field textarea,
+.editor-field input,
+.editor-field select,
+.editor-field textarea,
+.format-fields input,
+.format-fields select,
+.format-fields textarea,
+.transform-fields input,
+.transform-fields select,
+.transform-fields textarea,
+.video-select {
+  border-color: var(--border-subtle) !important;
+  background: var(--cc-gradient-input) !important;
+  color: var(--text-primary) !important;
+  box-shadow: inset 0 1px 0 rgb(203 188 255 / 6%), inset 0 -2px 6px rgb(8 9 15 / 40%) !important;
+}
+
+.searchbox:focus-within,
+.source-input:focus,
+.setting-control input:focus,
+.setting-control select:focus,
+.setting-control textarea:focus,
+.workflow-field input:focus,
+.workflow-field select:focus,
+.workflow-field textarea:focus,
+.inspector-fields input:focus,
+.inspector-fields select:focus,
+.inspector-fields textarea:focus,
+.caption-section input:focus,
+.caption-section select:focus,
+.caption-section textarea:focus,
+.editorial-dictionary-form input:focus,
+.editorial-dictionary-form select:focus,
+.studio-field input:focus,
+.studio-field select:focus,
+.studio-field textarea:focus,
+.editor-field input:focus,
+.editor-field select:focus,
+.editor-field textarea:focus,
+.format-fields input:focus,
+.format-fields select:focus,
+.format-fields textarea:focus,
+.transform-fields input:focus,
+.transform-fields select:focus,
+.transform-fields textarea:focus,
+.video-select:focus {
+  border-color: var(--border-highlight) !important;
+  box-shadow: var(--focus-ring), inset 0 1px 0 rgb(203 188 255 / 8%), inset 0 -2px 6px rgb(8 9 15 / 40%) !important;
+  outline: none !important;
+}
+
+input::placeholder,
+textarea::placeholder,
+.searchbox input::placeholder {
+  color: var(--text-muted) !important;
+}
+
+input[type='checkbox'],
+input[type='radio'],
+input[type='range'] {
+  accent-color: var(--purple-light);
+}
+
+.dropzone,
+.new-clip-dropzone,
+.layout-image-upload,
+.upload-asset-button,
+.video-upload-button,
+.empty-layer-upload,
+.music-upload,
+.voiceover-upload {
+  border-color: var(--border-button) !important;
+  background: var(--cc-gradient-dropzone) !important;
+  color: var(--purple-highlight) !important;
+  box-shadow: inset 0 1px 0 rgb(203 188 255 / 8%), inset 0 -2px 8px rgb(8 9 15 / 35%) !important;
+}
+
+.dropzone:hover,
+.new-clip-dropzone:hover,
+.layout-image-upload:hover,
+.upload-asset-button:hover,
+.video-upload-button:hover,
+.empty-layer-upload:hover,
+.music-upload:hover,
+.voiceover-upload:hover {
+  border-color: var(--border-highlight) !important;
+  background: linear-gradient(145deg, rgb(118 86 201 / 22%), var(--purple-darkest)) !important;
+  filter: brightness(1.08) !important;
+}
+
+.video-preview,
+.video-stage,
+.feed-canvas,
+.composition-canvas,
+.editor-stage,
+.timeline,
+.timeline-track {
+  border-color: var(--border-subtle) !important;
+  background: var(--background) !important;
+  box-shadow: inset 0 1px 0 rgb(203 188 255 / 5%), inset 0 -10px 24px rgb(0 0 0 / 38%) !important;
+}
+
+.studio-tabs,
+.gallery-tools,
+.workflow-actions,
+.editor-controls,
+.video-ai-actions,
+.new-clip-footer-actions {
+  border-color: var(--border-subtle) !important;
+  background: var(--background-secondary) !important;
+}
+
+.studio-tab:hover,
+.studio-tabs button:hover,
+.gallery-tools button:hover,
+.media-item-button:hover {
+  border-color: var(--border-highlight) !important;
+  color: var(--text-primary) !important;
+  background: var(--purple-soft) !important;
+}
+
+.modal-backdrop,
+.new-clip-backdrop {
+  background: rgb(4 4 9 / 78%) !important;
+  backdrop-filter: blur(8px);
+}
+
+.empty-state,
+.gallery-empty,
+.ai-status-panel,
+.editorial-provider-status,
+.video-audience-recommendations,
+.smart-audio-settings,
+.broll-suggestions,
+.prompt-control {
+  border-color: var(--border-subtle) !important;
+  background: linear-gradient(160deg, rgb(32 25 56 / 48%), rgb(13 14 22 / 78%)) !important;
+  color: var(--text-secondary) !important;
+}
+
+button:focus-visible,
+a:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--purple-highlight) !important;
+  outline-offset: 3px !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

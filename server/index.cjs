@@ -16,13 +16,22 @@ const {
 const { createEditorialService } = require('./editorial.cjs');
 const { buildSuggestedClips } = require('./clip-rules.cjs');
 const {
-  MAX_VIDEO_DURATION_SECONDS,
+  buildBrollSuggestions,
+  buildSpeechEditPlan,
+  mapFramingTrack,
+  mapTimedEntries,
+} = require('./smart-editing.cjs');
+const {
   MIN_CLIP_DURATION_SECONDS,
   getMaxClipCount,
   hasMinimumDuration,
 } = require('./video-rules.cjs');
 
-const ROOT_DIR = path.resolve(__dirname, '..');
+const ROOT_DIR = path.resolve(process.env.CLIPCUT_ROOT_DIR || path.resolve(__dirname, '..'));
+
+function resolveFromRoot(targetPath) {
+  return path.isAbsolute(targetPath) ? targetPath : path.resolve(ROOT_DIR, targetPath);
+}
 
 function loadLocalEnv(envPath) {
   if (!fs.existsSync(envPath)) {
@@ -60,13 +69,23 @@ function loadLocalEnv(envPath) {
   }
 }
 
-loadLocalEnv(path.join(ROOT_DIR, '.env'));
+if (process.env.CLIPCUT_SKIP_LOCAL_ENV !== '1') {
+  loadLocalEnv(process.env.CLIPCUT_ENV_PATH || path.join(ROOT_DIR, '.env'));
+}
 
 const PORT = Number(process.env.API_PORT || 3333);
-const VIDEOS_DIR = path.join(ROOT_DIR, 'public', 'videos');
-const GALLERY_DIR = path.join(ROOT_DIR, 'public', 'gallery');
-const PROJECT_ASSETS_DIR = path.join(ROOT_DIR, 'public', 'project-assets');
-const DATA_DIR = path.join(ROOT_DIR, 'data');
+const IS_DESKTOP_DATA_LAYOUT = Boolean(process.env.CLIPCUT_DATA_DIR);
+const DATA_ROOT = IS_DESKTOP_DATA_LAYOUT ? resolveFromRoot(process.env.CLIPCUT_DATA_DIR) : ROOT_DIR;
+const VIDEOS_DIR = IS_DESKTOP_DATA_LAYOUT
+  ? path.join(DATA_ROOT, 'videos')
+  : path.join(ROOT_DIR, 'public', 'videos');
+const GALLERY_DIR = IS_DESKTOP_DATA_LAYOUT
+  ? path.join(DATA_ROOT, 'gallery')
+  : path.join(ROOT_DIR, 'public', 'gallery');
+const PROJECT_ASSETS_DIR = IS_DESKTOP_DATA_LAYOUT
+  ? path.join(DATA_ROOT, 'project-assets')
+  : path.join(ROOT_DIR, 'public', 'project-assets');
+const DATA_DIR = IS_DESKTOP_DATA_LAYOUT ? path.join(DATA_ROOT, 'data') : path.join(ROOT_DIR, 'data');
 const PROJECTS_DIR = path.join(DATA_DIR, 'projects');
 const MANIFEST_PATH = path.join(VIDEOS_DIR, 'manifest.json');
 const GALLERY_MANIFEST_PATH = path.join(GALLERY_DIR, 'manifest.json');
@@ -78,7 +97,10 @@ const configuredPythonBin = process.env.PYTHON_BIN;
 const PYTHON_BIN = configuredPythonBin
   ? (path.isAbsolute(configuredPythonBin) ? configuredPythonBin : path.resolve(ROOT_DIR, configuredPythonBin))
   : (fs.existsSync(DEFAULT_PYTHON_BIN) ? DEFAULT_PYTHON_BIN : 'python');
-const MATPLOTLIB_CACHE_DIR = path.join(ROOT_DIR, '.cache', 'matplotlib');
+const MATPLOTLIB_CACHE_DIR = IS_DESKTOP_DATA_LAYOUT
+  ? path.join(DATA_ROOT, 'cache', 'matplotlib')
+  : path.join(ROOT_DIR, '.cache', 'matplotlib');
+const DIST_DIR = resolveFromRoot(process.env.CLIPCUT_DIST_DIR || path.join(ROOT_DIR, 'dist'));
 
 fs.mkdirSync(VIDEOS_DIR, { recursive: true });
 fs.mkdirSync(GALLERY_DIR, { recursive: true });
@@ -204,6 +226,25 @@ function getSafeProjectAssetPath(fileName) {
   }
 
   return resolvedAssetPath;
+}
+
+function getVoiceoverAssetPath(asset) {
+  if (!asset?.fileName) {
+    return null;
+  }
+
+  const fileName = String(asset.fileName);
+  const audioExtension = /\.(aac|flac|m4a|mp3|ogg|wav|webm)$/i;
+  if (path.basename(fileName) !== fileName || !audioExtension.test(fileName)) {
+    throw createExportJobError('INVALID_VOICEOVER', 'Arquivo de voice-over invalido.');
+  }
+
+  const assetPath = getSafeProjectAssetPath(fileName);
+  if (!fs.existsSync(assetPath)) {
+    throw createExportJobError('VOICEOVER_NOT_FOUND', 'Arquivo de voice-over nao encontrado.');
+  }
+
+  return assetPath;
 }
 
 function getSafeGalleryPath(folderName) {
@@ -390,6 +431,10 @@ function findExecutable(name, envName) {
 }
 
 const SUBTITLE_FONTS = {
+  geist: 'Geist',
+  'komika-axis': 'Komika Axis',
+  anton: 'Anton',
+  'bebas-neue': 'Bebas Neue',
   inter: 'Inter',
   montserrat: 'Montserrat',
   poppins: 'Poppins',
@@ -408,7 +453,7 @@ const SUBTITLE_ALIGNMENTS = {
 const SUBTITLE_FONT_SIZE = 42;
 
 function getSubtitleFontName(fontId) {
-  return SUBTITLE_FONTS[fontId] || SUBTITLE_FONTS.inter;
+  return SUBTITLE_FONTS[fontId] || SUBTITLE_FONTS.geist;
 }
 
 function getSubtitleAlignment(position) {
@@ -643,9 +688,10 @@ function normalizeCaptionSettings(settings = {}) {
     mode: ['none', 'automatic', 'manual'].includes(settings.mode) ? settings.mode : 'automatic',
     manualText: String(settings.manualText || ''),
     corrections: String(settings.corrections || ''),
-    font: String(settings.font || 'inter'),
+    font: String(settings.font || 'geist'),
     position,
     displayMode: ['block', 'word'].includes(settings.displayMode) ? settings.displayMode : 'block',
+    effect: ['none', 'karaoke', 'boxed', 'neon', 'shadow'].includes(settings.effect) ? settings.effect : 'none',
     language: ['original', 'pt-BR'].includes(settings.language) ? settings.language : 'pt-BR',
     positionX: getNumber(settings.positionX, positionDefaults.x, 5, 95),
     positionY: getNumber(settings.positionY, positionDefaults.y, 5, 95),
@@ -918,6 +964,7 @@ function writeAssFile(filePath, entries, fontName, position, canvasWidth = 1080,
   const secondaryColor = isWordMode ? textColor : highlightColor;
   const outlineColor = toAssColor(normalizedStyle.outlineColor, '#111111');
   const backgroundColor = toAssColor(normalizedStyle.backgroundColor, '#000000', 1 - normalizedStyle.backgroundOpacity);
+  const shadow = ['neon', 'shadow'].includes(normalizedStyle.effect) ? 3 : 0;
   const content = [
     '[Script Info]',
     'ScriptType: v4.00+',
@@ -927,7 +974,7 @@ function writeAssFile(filePath, entries, fontName, position, canvasWidth = 1080,
     '',
     '[V4+ Styles]',
     'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, TertiaryColour, BackColour, Bold, Italic, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, AlphaLevel, Encoding',
-    `Style: Default,${fontName || 'Arial'},${Math.round(normalizedStyle.fontSize)},${primaryColor},${secondaryColor},${outlineColor},${backgroundColor},0,0,3,${Math.round(normalizedStyle.outlineWidth)},0,5,40,40,40,0,1`,
+    `Style: Default,${fontName || 'Arial'},${Math.round(normalizedStyle.fontSize)},${primaryColor},${secondaryColor},${outlineColor},${backgroundColor},0,0,3,${Math.round(normalizedStyle.outlineWidth)},${shadow},5,40,40,40,0,1`,
     '',
     '[Events]',
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
@@ -945,7 +992,7 @@ async function createSubtitleFile(packagePath, folderName, clipBaseName, video, 
 
   if (options.captionTrack?.cues?.length || options.captionTrack?.words?.length) {
     const persistedEntries = getCaptionEntriesForDisplay(options.captionTrack, options.subtitleDisplayMode);
-    return createSubtitleFileFromEntries(packagePath, folderName, clipBaseName, persistedEntries, [], {
+    return createSubtitleFileFromEntries(packagePath, folderName, clipBaseName, mapTimedEntries(persistedEntries, options.editPlan), [], {
       displayMode: options.subtitleDisplayMode,
       fontName: options.subtitleFontName,
       position: options.subtitlePosition,
@@ -977,6 +1024,8 @@ async function createSubtitleFile(packagePath, folderName, clipBaseName, video, 
       : translation.entries;
     correctionsForOutput = [];
   }
+
+  entries = mapTimedEntries(entries, options.editPlan);
 
   return createSubtitleFileFromEntries(packagePath, folderName, clipBaseName, entries, correctionsForOutput, {
     displayMode: options.subtitleDisplayMode,
@@ -1120,7 +1169,7 @@ async function createAutomaticSubtitleFile(packagePath, folderName, clipBaseName
   const persistedCaptionTrack = options.captionTrack;
   if (persistedCaptionTrack?.cues?.length || persistedCaptionTrack?.words?.length) {
     const persistedEntries = getCaptionEntriesForDisplay(persistedCaptionTrack, options.displayMode);
-    return createSubtitleFileFromEntries(packagePath, folderName, clipBaseName, persistedEntries, [], options);
+    return createSubtitleFileFromEntries(packagePath, folderName, clipBaseName, mapTimedEntries(persistedEntries, options.editPlan), [], options);
   }
 
   if (!transcript?.ok) {
@@ -1154,13 +1203,14 @@ async function createAutomaticSubtitleFile(packagePath, folderName, clipBaseName
       ? translatedEntries.flatMap((entry) => buildFallbackTranscriptWords(entry.text, entry.start, entry.end))
       : getClipSubtitleWordEntriesFromSegments(transcript.segments, clip)
     : splitSubtitleEntries(translatedEntries);
-  if (entries.length === 0) {
+  const editedEntries = mapTimedEntries(entries, options.editPlan);
+  if (editedEntries.length === 0) {
     return {
       error: 'A transcricao nao encontrou fala dentro deste corte.',
     };
   }
 
-  return createSubtitleFileFromEntries(packagePath, folderName, clipBaseName, entries, correctionsForOutput, options);
+  return createSubtitleFileFromEntries(packagePath, folderName, clipBaseName, editedEntries, correctionsForOutput, options);
 }
 
 function escapeSubtitleFilterPath(filePath) {
@@ -1210,7 +1260,70 @@ function formatFilterNumber(value) {
   return String(Number(Number(value).toFixed(4)));
 }
 
-function buildCompositionRender(composition, project, durationSeconds, subtitleOptions = null) {
+function escapeFilterExpression(expression) {
+  return String(expression).replace(/,/g, '\\,');
+}
+
+function buildFramingExpression(framingTrack, property, fallback) {
+  const keyframes = (Array.isArray(framingTrack) ? framingTrack : [])
+    .map((keyframe) => ({
+      timeSeconds: Math.max(0, Number(keyframe?.timeMs || 0) / 1000),
+      value: Number(keyframe?.[property]),
+    }))
+    .filter((keyframe) => Number.isFinite(keyframe.timeSeconds) && Number.isFinite(keyframe.value))
+    .sort((first, second) => first.timeSeconds - second.timeSeconds);
+  const fallbackValue = Number.isFinite(Number(fallback)) ? Number(fallback) : 0;
+  if (keyframes.length === 0) {
+    return formatFilterNumber(fallbackValue);
+  }
+
+  let expression = formatFilterNumber(keyframes[keyframes.length - 1].value);
+  for (let index = keyframes.length - 2; index >= 0; index -= 1) {
+    const current = keyframes[index];
+    const next = keyframes[index + 1];
+    const duration = Math.max(next.timeSeconds - current.timeSeconds, 0.001);
+    const progress = `min(1,max(0,(t-${formatFilterNumber(current.timeSeconds)})/${formatFilterNumber(duration)}))`;
+    const interpolated = `${formatFilterNumber(current.value)}+(${formatFilterNumber(next.value - current.value)})*${progress}`;
+    expression = `if(lt(t,${formatFilterNumber(next.timeSeconds)}),${interpolated},${expression})`;
+  }
+
+  if (keyframes[0].timeSeconds > 0) {
+    expression = `if(lt(t,${formatFilterNumber(keyframes[0].timeSeconds)}),${formatFilterNumber(keyframes[0].value)},${expression})`;
+  }
+
+  return escapeFilterExpression(expression);
+}
+
+function buildSpeechEditFilters(filters, editPlan) {
+  if (!editPlan?.enabled || !Array.isArray(editPlan.keepRanges) || editPlan.keepRanges.length === 0) {
+    return { videoLabel: '0:v', audioLabel: '0:a?' };
+  }
+
+  const videoLabels = [];
+  const audioLabels = [];
+  editPlan.keepRanges.forEach((range, index) => {
+    const start = formatFilterNumber(range.start);
+    const end = formatFilterNumber(range.end);
+    const videoLabel = `speechVideo${index}`;
+    const audioLabel = `speechAudio${index}`;
+    filters.push(`[0:v]trim=start=${start}:end=${end},setpts=PTS-STARTPTS[${videoLabel}]`);
+    filters.push(`[0:a]atrim=start=${start}:end=${end},asetpts=PTS-STARTPTS[${audioLabel}]`);
+    videoLabels.push(videoLabel);
+    audioLabels.push(audioLabel);
+  });
+
+  if (videoLabels.length === 1) {
+    return { videoLabel: videoLabels[0], audioLabel: audioLabels[0] };
+  }
+
+  const videoInputs = videoLabels.map((label) => `[${label}]`).join('');
+  const audioInputs = audioLabels.map((label) => `[${label}]`).join('');
+  filters.push(`${videoInputs}concat=n=${videoLabels.length}:v=1:a=0[speechVideo]`);
+  filters.push(`${audioInputs}concat=n=${audioLabels.length}:v=0:a=1[speechAudio]`);
+  return { videoLabel: 'speechVideo', audioLabel: 'speechAudio' };
+}
+
+function buildCompositionRender(composition, project, durationSeconds, subtitleOptions = null, editPlan = null) {
   const canvasWidth = Math.max(320, Math.round(Number(composition.canvas.width || 1080)));
   const canvasHeight = Math.max(320, Math.round(Number(composition.canvas.height || 1920)));
   const fps = Math.max(1, Number(composition.canvas.fps || 30));
@@ -1232,8 +1345,11 @@ function buildCompositionRender(composition, project, durationSeconds, subtitleO
     : `format=rgba,rotate=${(rotation * Math.PI / 180).toFixed(6)}:ow=rotw(iw):oh=roth(ih):c=black@0`;
   const scaledWidth = Math.max(2, Math.round(regionWidth * scale));
   const scaledHeight = Math.max(2, Math.round(regionHeight * scale));
-  const positionX = formatFilterNumber(getObjectPositionPercent(transform.x) / 100);
-  const positionY = formatFilterNumber(getObjectPositionPercent(transform.y) / 100);
+  const framingTrack = mapFramingTrack(composition?.framingTrack, editPlan);
+  const trackedX = buildFramingExpression(framingTrack, 'x', transform.x);
+  const trackedY = buildFramingExpression(framingTrack, 'y', transform.y);
+  const positionX = `(50+(${trackedX})/2)/100`;
+  const positionY = `(50+(${trackedY})/2)/100`;
   const cropX = `(iw-${scaledWidth})*${positionX}`;
   const cropY = `(ih-${scaledHeight})*${positionY}`;
   const videoFilter = transform.cropMode === 'contain'
@@ -1241,12 +1357,15 @@ function buildCompositionRender(composition, project, durationSeconds, subtitleO
     : `scale=${scaledWidth}:${scaledHeight}:force_original_aspect_ratio=increase,crop=${scaledWidth}:${scaledHeight}:${cropX}:${cropY}`;
   const composedVideoFilter = ['format=rgba', videoFilter, rotationFilter].filter(Boolean).join(',');
   const filters = [
-    `color=c=${background}:s=${canvasWidth}x${canvasHeight}:r=${fps}:d=${Math.max(durationSeconds, 1)}[base0]`,
-    `[0:v]setpts=PTS-STARTPTS,${composedVideoFilter}[videoFrame]`,
-    `color=c=black@0:s=${regionWidth}x${regionHeight}:r=${fps}:d=${Math.max(durationSeconds, 1)},format=rgba[videoRegionBase]`,
+    `color=c=${background}:s=${canvasWidth}x${canvasHeight}:r=${fps}:d=${Math.max(editPlan?.editedDurationSeconds || durationSeconds, 1)}[base0]`,
+  ];
+  const speechInputs = buildSpeechEditFilters(filters, editPlan);
+  filters.push(
+    `[${speechInputs.videoLabel}]setpts=PTS-STARTPTS,${composedVideoFilter}[videoFrame]`,
+    `color=c=black@0:s=${regionWidth}x${regionHeight}:r=${fps}:d=${Math.max(editPlan?.editedDurationSeconds || durationSeconds, 1)},format=rgba[videoRegionBase]`,
     `[videoRegionBase][videoFrame]overlay=(${regionWidth}-overlay_w)/2:(${regionHeight}-overlay_h)/2:format=auto:eof_action=pass[video0]`,
     `[base0][video0]overlay=${regionX}:${regionY}:format=auto:eof_action=pass[layout0]`,
-  ];
+  );
   const inputPaths = [];
   let currentLabel = 'layout0';
   const mediaItems = composition.tracks?.filter((track) => track.kind === 'media').flatMap((track) => track.items || []) || [];
@@ -1308,7 +1427,14 @@ function buildCompositionRender(composition, project, durationSeconds, subtitleO
     filterComplex: filters.join(';'),
     inputPaths,
     outputLabel,
+    audioLabel: speechInputs.audioLabel,
   };
+}
+
+function buildAudioEnhancementFilter(enabled) {
+  return enabled
+    ? 'highpass=f=80,lowpass=f=15000,afftdn,loudnorm=I=-16:TP=-1.5:LRA=11'
+    : null;
 }
 
 function exportClipWithFfmpeg(
@@ -1319,6 +1445,7 @@ function exportClipWithFfmpeg(
   composition = null,
   project = null,
   shouldCancel = () => false,
+  renderOptions = {},
 ) {
   const ffmpegBin = findExecutable('ffmpeg', 'FFMPEG_BIN');
 
@@ -1335,21 +1462,34 @@ function exportClipWithFfmpeg(
   ];
 
   const durationSeconds = Math.max(Number(clip.durationSeconds || 1), 1);
+  const editPlan = renderOptions.editPlan;
+  const renderDurationSeconds = Math.max(Number(editPlan?.editedDurationSeconds || durationSeconds), 1);
   const compositionRender = composition
-    ? buildCompositionRender(composition, project, durationSeconds, subtitleOptions)
+    ? buildCompositionRender(composition, project, durationSeconds, subtitleOptions, editPlan)
     : null;
+  const voiceoverPath = renderOptions.voiceoverPath || null;
+  const audioFilter = buildAudioEnhancementFilter(renderOptions.audioEnhancement === true);
 
   if (compositionRender) {
     compositionRender.inputPaths.forEach((inputPath) => command.push('-loop', '1', '-i', inputPath));
+    const voiceoverInputIndex = compositionRender.inputPaths.length + 1;
+    if (voiceoverPath) {
+      command.push('-i', voiceoverPath);
+    }
+    const audioMap = voiceoverPath
+      ? `${voiceoverInputIndex}:a:0`
+      : compositionRender.audioLabel.startsWith('0:')
+        ? compositionRender.audioLabel
+        : `[${compositionRender.audioLabel}]`;
     command.push(
       '-t',
-      String(durationSeconds),
+      String(renderDurationSeconds),
       '-filter_complex',
       compositionRender.filterComplex,
       '-map',
       `[${compositionRender.outputLabel}]`,
       '-map',
-      '0:a?',
+      audioMap,
       '-c:v',
       'libx264',
       '-preset',
@@ -1362,10 +1502,38 @@ function exportClipWithFfmpeg(
       'aac',
       '-shortest',
     );
+    if (audioFilter) {
+      command.push('-af', audioFilter);
+    }
+  } else if (voiceoverPath) {
+    command.push(
+      '-i',
+      voiceoverPath,
+      '-t',
+      String(renderDurationSeconds),
+      '-map',
+      '0:v:0',
+      '-map',
+      '1:a:0',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'veryfast',
+      '-crf',
+      '23',
+      '-pix_fmt',
+      'yuv420p',
+      '-c:a',
+      'aac',
+      '-shortest',
+    );
+    if (audioFilter) {
+      command.push('-af', audioFilter);
+    }
   } else if (subtitleOptions?.subtitlePath) {
     command.push(
       '-t',
-      String(durationSeconds),
+      String(renderDurationSeconds),
       '-vf',
       buildSubtitleFilter(subtitleOptions.subtitlePath, subtitleOptions.fontName, subtitleOptions.position, 1080, 1920, subtitleOptions.captionSettings),
       '-c:v',
@@ -1375,10 +1543,13 @@ function exportClipWithFfmpeg(
       '-crf',
       '23',
       '-c:a',
-      'copy',
+      audioFilter ? 'aac' : 'copy',
     );
+    if (audioFilter) {
+      command.push('-af', audioFilter);
+    }
   } else {
-    command.push('-t', String(durationSeconds), '-c', 'copy');
+    command.push('-t', String(renderDurationSeconds), '-c', 'copy');
   }
 
   command.push('-avoid_negative_ts', 'make_zero', targetPath);
@@ -1911,10 +2082,6 @@ async function importVideoFromUrl(rawUrl) {
     throw new Error('O video do link precisa ter pelo menos 1 minuto.');
   }
 
-  if (durationSeconds > MAX_VIDEO_DURATION_SECONDS) {
-    throw new Error('O video do link ultrapassa o limite de 1 hora.');
-  }
-
   const fileStem = `${Date.now()}-${crypto.randomUUID()}-${sanitizeFileName(metadata.title || 'video-importado').slice(0, 80) || 'video-importado'}`;
   const outputTemplate = path.join(VIDEOS_DIR, `${fileStem}.%(ext)s`);
 
@@ -2032,6 +2199,21 @@ const imageUpload = multer({
   },
 });
 
+const audioUpload = multer({
+  storage: projectAssetStorage,
+  limits: {
+    fileSize: 200 * 1024 * 1024,
+  },
+  fileFilter: (_request, file, callback) => {
+    if (!file.mimetype.startsWith('audio/')) {
+      callback(new Error('INVALID_AUDIO_TYPE'));
+      return;
+    }
+
+    callback(null, true);
+  },
+});
+
 const app = express();
 
 app.use(cors());
@@ -2039,6 +2221,23 @@ app.use(express.json());
 app.use('/videos', express.static(VIDEOS_DIR));
 app.use('/gallery', express.static(GALLERY_DIR));
 app.use('/project-assets', express.static(PROJECT_ASSETS_DIR));
+
+if (fs.existsSync(DIST_DIR)) {
+  app.use(express.static(DIST_DIR));
+  app.use((request, response, next) => {
+    if (
+      request.method !== 'GET' ||
+      request.path.startsWith('/api') ||
+      path.extname(request.path) ||
+      !request.accepts('html')
+    ) {
+      next();
+      return;
+    }
+
+    response.sendFile(path.join(DIST_DIR, 'index.html'));
+  });
+}
 
 app.get('/api/health', (_request, response) => {
   response.json({ ok: true });
@@ -2049,19 +2248,39 @@ app.get('/api/ai/status', async (_request, response) => {
     const status = await runPythonJson('check_environment.py', [], 15000);
     response.json({ status: { python: true, ...status } });
   } catch (error) {
+    const tokenConfigured = Boolean(
+      process.env.PYANNOTE_AUTH_TOKEN || process.env.HUGGINGFACE_TOKEN || process.env.HF_TOKEN,
+    );
     response.json({
       status: {
         python: false,
-        ffmpeg: false,
+        ffmpeg: Boolean(findExecutable('ffmpeg', 'FFMPEG_BIN')),
         whisperx: false,
         mediapipe: false,
         pyannote: false,
-        pyannoteToken: false,
+        pyannoteToken: tokenConfigured,
         ollama: false,
       },
       detail: error.message,
     });
   }
+});
+
+app.post('/api/audio-assets', audioUpload.single('audio'), (request, response) => {
+  if (!request.file) {
+    response.status(400).json({ message: 'Nenhum audio foi enviado.' });
+    return;
+  }
+
+  response.status(201).json({
+    asset: {
+      id: crypto.randomUUID(),
+      type: 'audio',
+      name: request.file.originalname,
+      fileName: request.file.filename,
+      url: `/project-assets/${request.file.filename}`,
+    },
+  });
 });
 
 app.get('/api/editorial/config', (_request, response) => {
@@ -2498,12 +2717,12 @@ app.post('/api/projects/:id/generate-clips', async (request, response) => {
     ?.items?.[0];
   const mediaTracks = baseComposition?.tracks?.filter((track) => track.kind === 'media') || [];
   let preparedCaptionTrack = null;
+  let captionPreparationWarning = '';
   try {
     preparedCaptionTrack = await prepareCaptionTrack(videoPath, video, baseComposition?.captionSettings);
   } catch (error) {
     console.error(`[captions] preparation failed for project ${project.id}: ${error.message}`);
-    response.status(422).json({ message: error.message });
-    return;
+    captionPreparationWarning = error instanceof Error ? error.message : 'Preparacao de legendas automaticas indisponivel.';
   }
   const clips = buildSuggestedClips(video, request.body || {});
   if (!Array.isArray(clips) || clips.length === 0) {
@@ -2521,6 +2740,9 @@ app.post('/api/projects/:id/generate-clips', async (request, response) => {
     assets: cloneJson(project.assets || generatedProject.assets),
     layoutTemplate: cloneJson(layoutConfig),
     isLayoutDraft: false,
+    generationWarning: captionPreparationWarning
+      ? `Os cortes foram gerados, mas as legendas automaticas ficaram pendentes: ${captionPreparationWarning}`
+      : null,
     createdAt: project.createdAt,
     updatedAt: now,
     compositions: generatedProject.compositions.map((composition) => ({
@@ -2836,18 +3058,41 @@ function normalizeExportOptions(input = {}) {
   const subtitleLanguage = ['original', 'pt-BR'].includes(input.subtitleLanguage)
     ? input.subtitleLanguage
     : 'pt-BR';
+  const captionSettings = normalizeCaptionSettings({
+    ...(input.captionSettings && typeof input.captionSettings === 'object' ? input.captionSettings : {}),
+    mode: subtitleMode,
+    manualText: String(input.manualSubtitleText || ''),
+    font: String(input.subtitleFont || 'geist'),
+    position: input.subtitlePosition,
+    displayMode: subtitleDisplayMode,
+    language: subtitleLanguage,
+  });
+  const voiceoverAsset = input.voiceoverAsset && typeof input.voiceoverAsset === 'object'
+    ? {
+        id: String(input.voiceoverAsset.id || '').slice(0, 120),
+        type: 'audio',
+        name: String(input.voiceoverAsset.name || 'Voice-over').slice(0, 200),
+        fileName: path.basename(String(input.voiceoverAsset.fileName || '')),
+        url: String(input.voiceoverAsset.url || '').slice(0, 300),
+      }
+    : null;
 
   return {
     subtitleMode,
     manualSubtitleText: String(input.manualSubtitleText || ''),
     subtitleCorrections: parseSubtitleCorrections(input.subtitleCorrections),
-    subtitleFont: String(input.subtitleFont || 'inter'),
+    subtitleFont: String(input.subtitleFont || 'geist'),
     subtitlePosition: ['bottom', 'middle', 'top'].includes(input.subtitlePosition)
       ? input.subtitlePosition
       : 'bottom',
     subtitleDisplayMode,
     subtitleLanguage,
     audioMode: String(input.audioMode || 'Audio original'),
+    audioEnhancement: input.audioEnhancement === true,
+    removeSilence: input.removeSilence === true,
+    removeFillers: input.removeFillers === true,
+    voiceoverAsset: voiceoverAsset?.fileName ? voiceoverAsset : null,
+    captionSettings,
   };
 }
 
@@ -2891,7 +3136,18 @@ function createExportJob({ video, project, selectedClips, selectedCompositions, 
   const id = crypto.randomUUID();
   const packageId = crypto.randomUUID();
   const clipSnapshots = cloneJson(selectedClips);
-  const compositionSnapshots = cloneJson(selectedCompositions);
+  const needsAutoComposition = !project && (
+    video?.analysis?.tools?.mediapipe?.faceTracking?.length > 1 ||
+    options.removeSilence ||
+    options.removeFillers ||
+    options.voiceoverAsset
+  );
+  const autoTrackingCompositions = needsAutoComposition
+    ? createProject(video, clipSnapshots).compositions
+    : [];
+  const compositionSnapshots = cloneJson(
+    selectedCompositions.length > 0 ? selectedCompositions : autoTrackingCompositions,
+  );
 
   return {
     version: 1,
@@ -2903,7 +3159,7 @@ function createExportJob({ video, project, selectedClips, selectedCompositions, 
     sourceName: video.originalName,
     projectId: project?.id || null,
     clipIds: clipSnapshots.map((clip) => clip.id),
-    compositionIds: compositionSnapshots.map((composition) => composition.id),
+    compositionIds: project ? compositionSnapshots.map((composition) => composition.id) : [],
     inputRevision: Math.max(0, ...compositionSnapshots.map((composition) => Number(composition.revision) || 0)),
     packageId,
     folderName: `${Date.now()}-${packageId}`,
@@ -2967,6 +3223,7 @@ function buildGalleryClip(job, clipResult) {
     subtitleFont: clipResult.subtitleFont,
     subtitlePosition: clipResult.subtitlePosition,
     subtitleDisplayMode: clipResult.subtitleDisplayMode,
+    subtitleEffect: clipResult.subtitleEffect,
     subtitleLanguage: clipResult.subtitleLanguage,
     subtitlePath: clipResult.subtitlePath || null,
     subtitleError: clipResult.subtitleError || null,
@@ -3001,9 +3258,16 @@ function buildGalleryPackage(job) {
     subtitleFont: options.subtitleFont,
     subtitlePosition: options.subtitlePosition,
     subtitleDisplayMode: options.subtitleDisplayMode,
+    subtitleEffect: options.captionSettings?.effect || 'none',
     subtitleLanguage: options.subtitleLanguage,
     subtitleCorrections: options.subtitleCorrections.length,
     audioMode: options.audioMode,
+    audioEnhancement: options.audioEnhancement,
+    removeSilence: options.removeSilence,
+    removeFillers: options.removeFillers,
+    voiceoverAsset: options.voiceoverAsset
+      ? { name: options.voiceoverAsset.name, id: options.voiceoverAsset.id }
+      : null,
     clips: successfulClips,
   };
 }
@@ -3076,11 +3340,13 @@ async function processExportJob(startedJob) {
     }
 
     const options = job.options;
+    const voiceoverPath = getVoiceoverAssetPath(options.voiceoverAsset);
     const fontName = getSubtitleFontName(options.subtitleFont);
-    const needsTranscript = options.subtitleMode === 'automatic' && job.clipSnapshots.some((clip) => {
+    const needsCaptionTranscript = options.subtitleMode === 'automatic' && job.clipSnapshots.some((clip) => {
       const captionTrack = compositionByClip.get(clip.id)?.captionTrack;
       return !captionTrack?.cues?.length && !captionTrack?.words?.length;
     });
+    const needsTranscript = needsCaptionTranscript || options.removeSilence || options.removeFillers;
     let fullVideoTranscript = null;
 
     if (needsTranscript) {
@@ -3102,6 +3368,19 @@ async function processExportJob(startedJob) {
       assertExportJobActive(job.id);
     }
 
+    const analyzedVideo = fullVideoTranscript?.ok
+      ? {
+          ...video,
+          analysis: {
+            ...(video.analysis || {}),
+            tools: {
+              ...(video.analysis?.tools || {}),
+              whisperx: fullVideoTranscript,
+            },
+          },
+        }
+      : video;
+
     for (const [index, clip] of job.clipSnapshots.entries()) {
       job = assertExportJobActive(job.id);
       const currentResult = job.clipResults.find((clipResult) => clipResult.clipId === clip.id);
@@ -3111,6 +3390,10 @@ async function processExportJob(startedJob) {
 
       activeClipId = clip.id;
       const composition = compositionByClip.get(clip.id) || null;
+      const editPlan = buildSpeechEditPlan(analyzedVideo, clip, {
+        removeSilence: options.removeSilence,
+        removeFillers: options.removeFillers,
+      });
       const clipBaseName = sanitizeFileName(`${index + 1}-${clip.title}`) || `clip-${index + 1}`;
       const exportedFileName = `${clipBaseName}${extension}`;
       const exportedPath = path.join(packagePath, exportedFileName);
@@ -3153,7 +3436,8 @@ async function processExportJob(startedJob) {
               canvasHeight: subtitleCanvas.height,
               subtitleLanguage: options.subtitleLanguage,
               captionTrack: composition?.captionTrack,
-              captionSettings: composition?.captionSettings,
+              captionSettings: options.captionSettings || composition?.captionSettings,
+              editPlan,
             },
           )
         : await createSubtitleFile(packagePath, job.folderName, clipBaseName, video, clip, {
@@ -3167,7 +3451,8 @@ async function processExportJob(startedJob) {
             canvasHeight: subtitleCanvas.height,
             subtitleLanguage: options.subtitleLanguage,
             captionTrack: composition?.captionTrack,
-            captionSettings: composition?.captionSettings,
+            captionSettings: options.captionSettings || composition?.captionSettings,
+            editPlan,
           });
 
       assertExportJobActive(job.id);
@@ -3195,7 +3480,7 @@ async function processExportJob(startedJob) {
               subtitlePath: subtitleFile.filePath,
               fontName,
               position: options.subtitlePosition,
-              captionSettings: composition?.captionSettings,
+              captionSettings: options.captionSettings || composition?.captionSettings,
             }
           : null,
         composition,
@@ -3203,6 +3488,11 @@ async function processExportJob(startedJob) {
         () => {
           const currentJob = getExportJob(job.id);
           return !currentJob || currentJob.cancelRequested || currentJob.status === 'cancelled';
+        },
+        {
+          editPlan,
+          audioEnhancement: options.audioEnhancement,
+          voiceoverPath,
         },
       );
 
@@ -3239,6 +3529,7 @@ async function processExportJob(startedJob) {
               subtitleFont: options.subtitleFont,
               subtitlePosition: options.subtitlePosition,
               subtitleDisplayMode: options.subtitleDisplayMode,
+              subtitleEffect: options.captionSettings?.effect || 'none',
               subtitleLanguage: options.subtitleLanguage,
               subtitlePath: subtitleFile?.url || null,
               subtitleError: subtitleFile?.error || null,
@@ -3629,9 +3920,9 @@ app.post('/api/videos', upload.single('video'), (request, response) => {
   }
 
   const durationSeconds = Number(request.body.durationSeconds || 0);
-  if (!Number.isFinite(durationSeconds) || durationSeconds < MIN_CLIP_DURATION_SECONDS || durationSeconds > MAX_VIDEO_DURATION_SECONDS) {
+  if (!Number.isFinite(durationSeconds) || durationSeconds < MIN_CLIP_DURATION_SECONDS) {
     fs.unlinkSync(request.file.path);
-    response.status(422).json({ message: 'O video precisa ter duracao entre 1 minuto e 1 hora.' });
+    response.status(422).json({ message: 'O video precisa ter pelo menos 1 minuto de duracao.' });
     return;
   }
 
@@ -3692,10 +3983,14 @@ app.post('/api/videos/:id/analyze', async (request, response) => {
       ['--video', videoPath, '--output', analysisPath],
       20 * 60 * 1000,
     );
+    const enrichedAnalysis = {
+      ...analysis,
+      brollSuggestions: buildBrollSuggestions({ analysis }),
+    };
     const updatedVideo = updateVideo(video.id, (currentVideo) => ({
       ...currentVideo,
       aiStatus: 'done',
-      analysis,
+      analysis: enrichedAnalysis,
       analysisPath: path.basename(analysisPath),
       analyzedAt: new Date().toISOString(),
     }));
@@ -3750,26 +4045,60 @@ app.use((error, _request, response, _next) => {
     return;
   }
 
+  if (error.message === 'INVALID_AUDIO_TYPE') {
+    response.status(400).json({ message: 'Envie apenas arquivos de audio.' });
+    return;
+  }
+
+  if (error.message === 'INVALID_IMAGE_TYPE') {
+    response.status(400).json({ message: 'Envie apenas arquivos de imagem.' });
+    return;
+  }
+
   response.status(500).json({ message: 'Erro interno na API.' });
 });
 
-recoverExportJobs();
-scheduleExportJobs();
+function startServer(port = PORT) {
+  return new Promise((resolve, reject) => {
+    const server = app.listen(port, '127.0.0.1', () => {
+      recoverExportJobs();
+      scheduleExportJobs();
+      console.log(`ClipCut API running at http://127.0.0.1:${server.address().port}`);
+      console.log(`Videos directory: ${VIDEOS_DIR}`);
+      resolve(server);
+    });
 
-const server = app.listen(PORT, () => {
-  console.log(`ClipCut API running at http://localhost:${PORT}`);
-  console.log(`Videos directory: ${VIDEOS_DIR}`);
-});
+    server.once('error', reject);
+  });
+}
 
-server.on('error', (error) => {
-  console.error(`ClipCut API failed to start: ${error.message}`);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  let server;
 
-process.on('SIGINT', () => {
-  server.close(() => process.exit(0));
-});
+  startServer()
+    .then((runningServer) => {
+      server = runningServer;
+      server.on('error', (error) => {
+        console.error(`ClipCut API failed: ${error.message}`);
+        process.exitCode = 1;
+      });
+    })
+    .catch((error) => {
+      console.error(`ClipCut API failed to start: ${error.message}`);
+      process.exitCode = 1;
+    });
 
-process.on('SIGTERM', () => {
-  server.close(() => process.exit(0));
-});
+  const shutdown = () => {
+    if (server) {
+      server.close(() => process.exit(0));
+      return;
+    }
+
+    process.exit(0);
+  };
+
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+}
+
+module.exports = { app, startServer };

@@ -199,7 +199,7 @@ export function CaptionsPage() {
 
               <label className="workflow-field">
                 Fonte
-                <select value={settings.font || 'inter'} onChange={(event) => setSettings((current) => ({ ...current, font: event.target.value }))}>
+                <select value={settings.font || 'geist'} onChange={(event) => setSettings((current) => ({ ...current, font: event.target.value }))}>
                   {subtitleFonts.map((font) => (
                     <option value={font.id} key={font.id}>{font.label}</option>
                   ))}

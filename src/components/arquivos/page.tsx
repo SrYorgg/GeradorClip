@@ -53,6 +53,16 @@ type LayoutImageDraft = {
   previewUrl: string;
 };
 
+const AI_STATUS_ITEMS = [
+  { key: 'python', label: 'Python', optional: false },
+  { key: 'ffmpeg', label: 'ffmpeg', optional: false },
+  { key: 'whisperx', label: 'WhisperX', optional: false },
+  { key: 'mediapipe', label: 'MediaPipe', optional: false },
+  { key: 'pyannote', label: 'Pyannote', optional: false },
+  { key: 'pyannoteToken', label: 'Token Pyannote', optional: false },
+  { key: 'ollama', label: 'Ollama', optional: true },
+] as const;
+
 export function FilesPage() {
   const navigate = useNavigate();
   const [videos, setVideos] = useState<UploadedVideo[]>([]);
@@ -268,11 +278,14 @@ export function FilesPage() {
 
         {aiStatus && (
           <div className="ai-status-panel">
-            {Object.entries(aiStatus).map(([name, isReady]) => (
-              <span className={isReady ? 'ready' : 'missing'} key={name}>
-                {name}: {isReady ? 'ok' : 'pendente'}
-              </span>
-            ))}
+            {AI_STATUS_ITEMS.map(({ key, label, optional }) => {
+              const isReady = aiStatus[key] === true;
+              return (
+                <span className={isReady ? 'ready' : 'missing'} key={key}>
+                  {label}: {isReady ? 'ok' : optional ? 'opcional' : 'não disponível'}
+                </span>
+              );
+            })}
           </div>
         )}
 

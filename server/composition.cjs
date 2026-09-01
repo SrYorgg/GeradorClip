@@ -89,9 +89,44 @@ function createTrackItem(video, clip, regionId = 'main') {
   };
 }
 
+function getFaceTrackingForClip(video, clip) {
+  const tracking = video?.analysis?.tools?.mediapipe?.faceTracking;
+  if (!Array.isArray(tracking) || tracking.length === 0) {
+    return [];
+  }
+
+  const clipStartMs = Math.max(0, Math.round(Number(clip.startSeconds || 0) * 1000));
+  const clipEndMs = Math.max(clipStartMs + 100, Math.round(Number(clip.endSeconds || 1) * 1000));
+  const durationMs = clipEndMs - clipStartMs;
+  const keyframes = tracking
+    .map((keyframe) => {
+      const sourceTimeMs = Number(keyframe?.timeMs);
+      if (!Number.isFinite(sourceTimeMs) || sourceTimeMs < clipStartMs || sourceTimeMs > clipEndMs) {
+        return null;
+      }
+
+      return {
+        timeMs: Math.min(durationMs, Math.max(0, Math.round(sourceTimeMs - clipStartMs))),
+        x: Math.min(100, Math.max(-100, Number(keyframe.x) || 0)),
+        y: Math.min(100, Math.max(-100, Number(keyframe.y) || 0)),
+        scale: Math.min(3, Math.max(0.5, Number(keyframe.scale) || 1)),
+        rotation: Math.min(180, Math.max(-180, Number(keyframe.rotation) || 0)),
+      };
+    })
+    .filter(Boolean)
+    .sort((first, second) => first.timeMs - second.timeMs);
+
+  if (keyframes.length < 2) {
+    return keyframes;
+  }
+
+  return keyframes.filter((keyframe, index, values) => index === 0 || keyframe.timeMs !== values[index - 1].timeMs);
+}
+
 function createComposition(projectId, video, clip, layoutConfig, index = 0) {
   const now = new Date().toISOString();
   const item = createTrackItem(video, clip, layoutConfig.layout.regions[0]?.id || 'main');
+  const framingTrack = getFaceTrackingForClip(video, clip);
 
   return {
     version: 2,
@@ -115,9 +150,10 @@ function createComposition(projectId, video, clip, layoutConfig, index = 0) {
       mode: 'automatic',
       manualText: '',
       corrections: '',
-      font: 'inter',
+      font: 'geist',
       position: 'bottom',
       displayMode: 'block',
+      effect: 'none',
       language: 'pt-BR',
       positionX: 50,
       positionY: 86,
@@ -130,11 +166,15 @@ function createComposition(projectId, video, clip, layoutConfig, index = 0) {
       backgroundColor: '#000000',
       backgroundOpacity: 0.6,
     },
+    ...(framingTrack.length > 0 ? { framingTrack } : {}),
     layout: cloneValue(layoutConfig.layout),
     aiMetadata: {
       engine: 'ClipCut Core',
       model: 'clipcut-drafts-v1',
-      reasons: ['Corte sugerido a partir do intervalo selecionado.'],
+      reasons: [
+        'Corte sugerido a partir do intervalo selecionado.',
+        ...(framingTrack.length > 0 ? ['Rastreamento facial aplicado ao reenquadramento.'] : []),
+      ],
     },
     status: 'suggested',
     review: {
@@ -177,9 +217,10 @@ function normalizeComposition(composition) {
       mode: 'automatic',
       manualText: '',
       corrections: '',
-      font: 'inter',
+      font: 'geist',
       position: 'bottom',
       displayMode: 'block',
+      effect: 'none',
       language: 'pt-BR',
       positionX: 50,
       positionY: 86,

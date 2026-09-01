@@ -3,7 +3,7 @@ import { FileVideo2, FolderOpen, Link2, Plus, Trash2, Upload, UploadCloud, X } f
 import { useNavigate } from 'react-router-dom';
 import { importVideoFromUrl, uploadVideo } from '../../lib/videoApi';
 import { formatDuration, formatFileSize } from '../../lib/formatters';
-import { MAX_VIDEO_DURATION_SECONDS, MIN_CLIP_DURATION_SECONDS } from '../../lib/videoRules';
+import { MIN_CLIP_DURATION_SECONDS } from '../../lib/videoRules';
 import './NewClipButton.css';
 
 type SelectedVideo = {
@@ -62,11 +62,6 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
 
       if (!Number.isFinite(video.duration) || video.duration < MIN_CLIP_DURATION_SECONDS) {
         setError('O video precisa ter pelo menos 1 minuto.');
-        return;
-      }
-
-      if (video.duration > MAX_VIDEO_DURATION_SECONDS) {
-        setError('O vídeo precisa ter no máximo 1 hora.');
         return;
       }
 
@@ -195,7 +190,7 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
                 <UploadCloud size={32} />
               </div>
               <h3>Arraste o vídeo aqui</h3>
-              <p>Use um arquivo de vídeo com até 1 hora.</p>
+              <p>Use um arquivo de vídeo com pelo menos 1 minuto, sem limite de duração.</p>
             </div>
 
             <div className="new-clip-actions">
@@ -210,7 +205,7 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
                 <Link2 size={20} />
                 <div>
                   <h3>Importar por link</h3>
-                  <p>YouTube e outros sites suportados pelo yt-dlp, com limite de 1 hora.</p>
+                  <p>YouTube e outros sites suportados pelo yt-dlp, sem limite de duração.</p>
                 </div>
               </div>
               <div className="new-clip-url-form">
@@ -233,7 +228,7 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
               <h3>Como começar</h3>
               <ol>
                 <li>Arraste o arquivo para a área acima ou selecione pelo gerenciador.</li>
-                <li>Confirme que o vídeo tem no máximo 1 hora.</li>
+                <li>Vídeos longos podem ser analisados e divididos em cortes de pelo menos 1 minuto.</li>
                 <li>Depois do envio, o arquivo deve ser salvo em `public/videos`.</li>
               </ol>
             </div>

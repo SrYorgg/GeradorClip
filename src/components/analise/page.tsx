@@ -4,7 +4,7 @@ import { AlertTriangle, ArrowRight, Bot, CheckCircle2, ChevronDown, ChevronUp, M
 import { Link, useSearchParams } from 'react-router-dom';
 import type { CaptionSettings, CaptionTrack, Project, ProjectSummary } from '../../features/editor/domain/editor.types';
 import { getCaptionBackgroundColor, getCaptionSettings, updateCaptionCueText } from '../../lib/captionSettings';
-import { getSubtitleFont } from '../../lib/subtitleFonts';
+import { getSubtitleFont, subtitleFonts } from '../../lib/subtitleFonts';
 import { approveReadyCompositions, getProject, listProjects, reviewProject, saveComposition } from '../../lib/videoApi';
 import { Header } from '../main/Header';
 import { StepIndicator } from '../ui';
@@ -66,7 +66,7 @@ function CaptionPositionEditor({ videoUrl, settings, previewText, onChange }: Ca
     width: settings.displayMode === 'word' ? 'auto' : `${settings.maxWidthPct ?? 84}%`,
     color: settings.displayMode === 'word' ? settings.highlightColor : settings.textColor,
     backgroundColor: getCaptionBackgroundColor(settings),
-    fontFamily: getSubtitleFont(settings.font || 'inter').cssFamily,
+    fontFamily: getSubtitleFont(settings.font || 'geist').cssFamily,
     fontSize: `${Math.max(11, Number(settings.fontSize || 42) * 0.42)}px`,
     textShadow: `0 1px 2px ${settings.outlineColor || '#111111'}, 0 2px 8px ${settings.outlineColor || '#111111'}`,
   };
@@ -202,9 +202,9 @@ function CaptionEditor({ composition, videoUrl, track, settings, isSaving, onTra
       <div className="workflow-caption-controls">
         <label className="workflow-field">
           Fonte
-          <select value={settings.font || 'inter'} onChange={(event) => onSettingsChange({ font: event.target.value })}>
-            {['inter', 'montserrat', 'poppins', 'roboto', 'open-sans', 'lato', 'oswald'].map((font) => (
-              <option value={font} key={font}>{getSubtitleFont(font).label}</option>
+          <select value={settings.font || 'geist'} onChange={(event) => onSettingsChange({ font: event.target.value })}>
+            {subtitleFonts.map((font) => (
+              <option value={font.id} key={font.id}>{font.label}</option>
             ))}
           </select>
         </label>

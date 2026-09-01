@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { ChangeEvent } from 'react';
 import {
+  AudioLines,
   Bell,
   Clock3,
   Download,
@@ -8,19 +10,26 @@ import {
   MoreHorizontal,
   Pencil,
   Play,
+  ScanFace,
   Search,
   Sparkles,
   Wand2,
+  X,
 } from 'lucide-react';
 import {
+  analyzeUploadedVideo,
   createProject,
   exportClipsToGallery,
   generateVideoClips,
   GeneratedClip,
   listUploadedVideos,
   UploadedVideo,
+  uploadAudioAsset,
+  VoiceoverAsset,
 } from '../../lib/videoApi';
 import { subtitleFonts } from '../../lib/subtitleFonts';
+import { captionStylePresets, getCaptionStylePreset, toCaptionSettings } from '../../lib/captionPresets';
+import type { CaptionEffect } from '../../features/editor/domain/editor.types';
 import { formatDuration, formatMinutes } from '../../lib/formatters';
 import {
   getMaxClipCount,
@@ -34,7 +43,8 @@ export function IndexPage() {
   const [videos, setVideos] = useState<UploadedVideo[]>([]);
   const [selectedVideoId, setSelectedVideoId] = useState('');
   const [selectedClipIds, setSelectedClipIds] = useState<string[]>([]);
-  const [cutMode, setCutMode] = useState<'duration' | 'count' | 'recommended'>('count');
+  const [cutMode, setCutMode] = useState<'duration' | 'count' | 'recommended' | 'best-moments'>('count');
+  const [focusPrompt, setFocusPrompt] = useState('');
   const [targetClipDurationSeconds, setTargetClipDurationSeconds] = useState(60);
   const [targetClipCount, setTargetClipCount] = useState(5);
   const [subtitleMode, setSubtitleMode] = useState<'none' | 'automatic' | 'manual'>('automatic');
@@ -44,7 +54,15 @@ export function IndexPage() {
   const [subtitlePosition, setSubtitlePosition] = useState<'bottom' | 'middle' | 'top'>('bottom');
   const [subtitleDisplayMode, setSubtitleDisplayMode] = useState<'block' | 'word'>('block');
   const [subtitleLanguage, setSubtitleLanguage] = useState<'original' | 'pt-BR'>('pt-BR');
+  const [subtitleStylePreset, setSubtitleStylePreset] = useState(captionStylePresets[0].id);
+  const [subtitleEffect, setSubtitleEffect] = useState<CaptionEffect>(captionStylePresets[0].effect);
+  const [audioEnhancement, setAudioEnhancement] = useState(false);
+  const [removeSilence, setRemoveSilence] = useState(false);
+  const [removeFillers, setRemoveFillers] = useState(false);
+  const [voiceoverAsset, setVoiceoverAsset] = useState<VoiceoverAsset | null>(null);
+  const [isUploadingVoiceover, setIsUploadingVoiceover] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [openingClipId, setOpeningClipId] = useState<string | null>(null);
@@ -101,7 +119,38 @@ export function IndexPage() {
       ? `Criar ${safeTargetClipCount} rascunhos`
       : cutMode === 'recommended'
         ? 'Criar momentos recomendados'
+        : cutMode === 'best-moments'
+          ? 'Criar melhores momentos'
         : 'Criar rascunhos';
+
+  const selectedCaptionPreset = getCaptionStylePreset(subtitleStylePreset);
+
+  function replaceVideo(updatedVideo: UploadedVideo) {
+    setVideos((currentVideos) =>
+      currentVideos.map((currentVideo) => (currentVideo.id === updatedVideo.id ? updatedVideo : currentVideo)),
+    );
+  }
+
+  async function analyzeSelectedVideo() {
+    if (!selectedVideo) {
+      setMessage('Selecione um video salvo em Arquivos antes de analisar.');
+      return null;
+    }
+
+    try {
+      setIsAnalyzing(true);
+      setMessage('Analisando fala, movimento e rostos para encontrar os melhores momentos...');
+      const analyzedVideo = await analyzeUploadedVideo(selectedVideo.id);
+      replaceVideo(analyzedVideo);
+      setMessage('Analise concluida. O rastreamento facial sera aplicado automaticamente ao reenquadrar os cortes.');
+      return analyzedVideo;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Nao foi possivel analisar o video.');
+      return null;
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }
 
   async function createClips() {
     if (!selectedVideo) {
@@ -115,16 +164,23 @@ export function IndexPage() {
     }
 
     try {
+      let videoForGeneration = selectedVideo;
+      if (!selectedVideo.analysis) {
+        const analyzedVideo = await analyzeSelectedVideo();
+        if (!analyzedVideo) {
+          return;
+        }
+        videoForGeneration = analyzedVideo;
+      }
       setIsGenerating(true);
       setMessage('');
-      const { video, clips: generatedClips } = await generateVideoClips(selectedVideo.id, {
+      const { video, clips: generatedClips } = await generateVideoClips(videoForGeneration.id, {
         mode: cutMode,
         targetDurationSeconds: safeTargetClipDurationSeconds,
         targetClipCount: safeTargetClipCount,
+        focusPrompt: focusPrompt.trim(),
       });
-      setVideos((currentVideos) =>
-        currentVideos.map((currentVideo) => (currentVideo.id === video.id ? video : currentVideo)),
-      );
+      replaceVideo(video);
       setSelectedClipIds(generatedClips.map((clip) => clip.id));
       setMessage('Rascunhos criados. Abra um corte no Editor antes de exportar.');
     } catch (error) {
@@ -183,6 +239,23 @@ export function IndexPage() {
         subtitleDisplayMode,
         subtitleLanguage,
         audioMode: 'Audio original',
+        audioEnhancement,
+        removeSilence,
+        removeFillers,
+        voiceoverAsset,
+        captionSettings: {
+          mode: subtitleMode,
+          manualText: manualSubtitleText,
+          corrections: subtitleCorrections,
+          position: subtitlePosition,
+          language: subtitleLanguage,
+          ...toCaptionSettings({
+            ...selectedCaptionPreset,
+            effect: subtitleEffect,
+            font: subtitleFont,
+            displayMode: subtitleDisplayMode,
+          }),
+        },
       });
       setMessage('Exportacao adicionada a fila.');
       navigate(`/galeria?jobId=${exportJob.id}`);
@@ -190,6 +263,26 @@ export function IndexPage() {
       setMessage(error instanceof Error ? error.message : 'Nao foi possivel exportar o pacote.');
     } finally {
       setIsExporting(false);
+    }
+  }
+
+  async function handleVoiceoverUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    try {
+      setIsUploadingVoiceover(true);
+      setMessage('Enviando voice-over...');
+      const asset = await uploadAudioAsset(file);
+      setVoiceoverAsset(asset);
+      setMessage('Voice-over pronto para a próxima exportação.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Nao foi possivel enviar o voice-over.');
+    } finally {
+      setIsUploadingVoiceover(false);
+      event.target.value = '';
     }
   }
 
@@ -219,6 +312,17 @@ export function IndexPage() {
             <Clock3 size={14} />
             {clip.duration} - {clip.range}
           </span>
+          {clip.recommendationScore !== undefined && (
+            <small className="clip-ai-score">
+              <Sparkles size={12} /> Score IA {Math.round(clip.recommendationScore)}%
+            </small>
+          )}
+          {clip.recommendationReason && (
+            <small className="clip-ai-reason">{clip.recommendationReason}</small>
+          )}
+          {clip.recommendationPrompt && (
+            <small className="clip-ai-reason">Foco editorial: {clip.recommendationPrompt}</small>
+          )}
         </div>
         <div className="clip-meta">
           <span className={`status ${clip.status.toLowerCase()}`}>{clip.status}</span>
@@ -292,10 +396,11 @@ export function IndexPage() {
                 <select
                   aria-label="Modo de corte"
                   value={cutMode}
-          onChange={(event) => setCutMode(event.target.value as 'duration' | 'count' | 'recommended')}
+                  onChange={(event) => setCutMode(event.target.value as 'duration' | 'count' | 'recommended' | 'best-moments')}
                 >
                   <option value="duration">Duracao por corte</option>
                   <option value="count">Quantidade de cortes</option>
+                  <option value="best-moments">Melhores momentos com IA</option>
                   {selectedVideo?.audienceRecommendations?.length ? <option value="recommended">Momentos mais assistidos</option> : null}
                 </select>
               </label>
@@ -325,6 +430,11 @@ export function IndexPage() {
                     onChange={(event) => setTargetClipCount(Number(event.target.value))}
                   />
                 </label>
+              ) : cutMode === 'best-moments' ? (
+                <div className="setting-control setting-control-recommendation">
+                  <span>Analise inteligente</span>
+                  <strong>{selectedVideo?.aiStatus === 'done' ? 'Fala, movimento e rosto analisados' : 'Analise automatica ao gerar'}</strong>
+                </div>
               ) : (
                 <div className="setting-control setting-control-recommendation">
                   <span>Recomendacao do YouTube</span>
@@ -339,10 +449,61 @@ export function IndexPage() {
                 : `Cada corte terá no mínimo 1 minuto. Este vídeo permite até ${Math.floor(Number(selectedVideo?.durationSeconds || 0) / MIN_CLIP_DURATION_SECONDS)} corte(s) sem ultrapassar o tempo disponível.`}
             </p>
 
-            <button className="generate-button" disabled={!selectedVideo || isGenerating} onClick={createClips}>
-              <Wand2 size={20} />
-              {isGenerating ? 'Gerando clips...' : generateButtonLabel}
-            </button>
+            {cutMode === 'best-moments' && (
+              <label className="setting-control prompt-control">
+                <span>Pedido editorial opcional</span>
+                <input
+                  aria-label="Pedido editorial para encontrar melhores momentos"
+                  placeholder="Ex.: trecho mais engraçado sobre vendas"
+                  value={focusPrompt}
+                  onChange={(event) => setFocusPrompt(event.target.value)}
+                />
+                <small>As palavras do pedido recebem mais peso na ordenação das sugestões.</small>
+              </label>
+            )}
+
+            {cutMode === 'best-moments' && (
+              <p className="generator-ai-note">
+                A IA combina fala, ganchos de texto, movimento e presenca de rosto para ordenar as janelas mais promissoras.
+              </p>
+            )}
+
+            <div className="generator-actions">
+              <button className="generate-button" disabled={!selectedVideo || isGenerating || isAnalyzing} onClick={createClips}>
+                <Wand2 size={20} />
+                {isGenerating ? 'Gerando clips...' : generateButtonLabel}
+              </button>
+              <button className="secondary-action analysis-action" type="button" disabled={!selectedVideo || isAnalyzing || isGenerating} onClick={() => void analyzeSelectedVideo()}>
+                <ScanFace size={17} />
+                {isAnalyzing ? 'Analisando...' : 'Analisar video'}
+              </button>
+            </div>
+            <div className="tracking-note">
+              <ScanFace size={16} />
+              <span>Tracking de rosto automatico: o reenquadramento acompanha o rosto principal durante o corte.</span>
+            </div>
+
+            {selectedVideo?.analysis?.brollSuggestions?.length ? (
+              <section className="broll-suggestions" aria-labelledby="broll-suggestions-title">
+                <div className="broll-suggestions-heading">
+                  <div>
+                    <p className="eyebrow">Apoio visual</p>
+                    <h2 id="broll-suggestions-title">Sugestões de B-roll</h2>
+                  </div>
+                  <span>{selectedVideo.analysis.brollSuggestions.length} ideias</span>
+                </div>
+                <p>Use estas ideias como guia para adicionar imagens ou vídeos de apoio no Editor.</p>
+                <div className="broll-suggestion-list">
+                  {selectedVideo.analysis.brollSuggestions.slice(0, 6).map((suggestion) => (
+                    <article className="broll-suggestion" key={suggestion.id}>
+                      <span>{formatDuration(suggestion.startSeconds)}–{formatDuration(suggestion.endSeconds)}</span>
+                      <strong>{suggestion.title}</strong>
+                      <small>{suggestion.prompt}</small>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            ) : null}
 
             <div className="subtitle-settings">
               <div className="subtitle-settings-heading">
@@ -376,6 +537,49 @@ export function IndexPage() {
                         {font.label}
                       </option>
                     ))}
+                  </select>
+                </label>
+              </div>
+
+              <div className="settings-grid caption-presets-grid">
+                <label className="setting-control">
+                  <span>Preset de fonte e estilo</span>
+                  <select
+                    aria-label="Preset de fonte e estilo"
+                    value={subtitleStylePreset}
+                    onChange={(event) => {
+                      const preset = getCaptionStylePreset(event.target.value);
+                      setSubtitleStylePreset(preset.id);
+                      setSubtitleFont(preset.font);
+                      setSubtitleDisplayMode(preset.displayMode);
+                      setSubtitleEffect(preset.effect);
+                    }}
+                    disabled={subtitleMode === 'none'}
+                  >
+                    {captionStylePresets.map((preset) => (
+                      <option value={preset.id} key={preset.id}>{preset.label} — {preset.description}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="setting-control">
+                  <span>Efeito da legenda</span>
+                  <select
+                    aria-label="Efeito da legenda"
+                    value={subtitleEffect}
+                    onChange={(event) => {
+                      const effect = event.target.value as CaptionEffect;
+                      setSubtitleEffect(effect);
+                      if (effect === 'karaoke' || effect === 'neon') {
+                        setSubtitleDisplayMode('word');
+                      }
+                    }}
+                    disabled={subtitleMode === 'none'}
+                  >
+                    <option value="none">Nenhum</option>
+                    <option value="karaoke">Karaoke palavra a palavra</option>
+                    <option value="boxed">Caixa de destaque</option>
+                    <option value="neon">Neon com sombra</option>
+                    <option value="shadow">Sombra suave</option>
                   </select>
                 </label>
               </div>
@@ -444,6 +648,37 @@ export function IndexPage() {
                 </label>
               )}
             </div>
+
+            <section className="smart-audio-settings" aria-labelledby="smart-audio-title">
+              <div className="subtitle-settings-heading">
+                <p className="eyebrow">Tratamento de áudio</p>
+                <h2 id="smart-audio-title">Deixe a fala mais limpa</h2>
+              </div>
+              <div className="smart-audio-options">
+                <label className="smart-audio-option">
+                  <input type="checkbox" checked={audioEnhancement} onChange={(event) => setAudioEnhancement(event.target.checked)} />
+                  <span><strong>Melhorar áudio</strong><small>Reduz ruído e normaliza o volume na exportação.</small></span>
+                </label>
+                <label className="smart-audio-option">
+                  <input type="checkbox" checked={removeSilence} onChange={(event) => setRemoveSilence(event.target.checked)} />
+                  <span><strong>Encurtar pausas longas</strong><small>Remove intervalos acima de 0,9s preservando uma respiração curta.</small></span>
+                </label>
+                <label className="smart-audio-option">
+                  <input type="checkbox" checked={removeFillers} onChange={(event) => setRemoveFillers(event.target.checked)} />
+                  <span><strong>Remover vícios de linguagem</strong><small>Retira palavras detectadas como “um”, “uh”, “tipo” e similares quando houver timestamps.</small></span>
+                </label>
+              </div>
+              <div className="voiceover-upload">
+                <AudioLines size={18} />
+                <label className="voiceover-upload-control">
+                  <strong>{voiceoverAsset ? 'Voice-over selecionado' : 'Adicionar voice-over'}</strong>
+                  <small>{voiceoverAsset?.name || 'MP3, WAV, M4A, AAC, OGG ou FLAC'}</small>
+                  <input type="file" accept="audio/*" onChange={handleVoiceoverUpload} disabled={isUploadingVoiceover} />
+                </label>
+                {voiceoverAsset && <button type="button" aria-label="Remover voice-over" onClick={() => setVoiceoverAsset(null)}><X size={15} /></button>}
+              </div>
+              <p className="smart-audio-note">O voice-over substitui o áudio original apenas no arquivo exportado. O preview original continua intacto.</p>
+            </section>
 
             {message && <p className="generator-message">{message}</p>}
           </section>

@@ -11,10 +11,14 @@ import { CaptionsPage } from './components/legendas/page';
 import { TrashPage } from './components/lixeira/page';
 import { ProjectsPage } from './components/projetos/page';
 import { SelectionPage } from './components/selecao/page';
+import { InstagramStudioPage } from './components/instagram/page';
+import { VideoEditorPage } from './components/video-editor/page';
 
 export const router = createBrowserRouter([
   { path: '/', element: <Navigate to="/arquivos" replace /> },
   { path: '/arquivos', element: <FilesPage /> },
+  { path: '/instagram', element: <InstagramStudioPage /> },
+  { path: '/editor-video', element: <VideoEditorPage /> },
   { path: '/legendas', element: <CaptionsPage /> },
   { path: '/editor', element: <Navigate to="/projetos" replace /> },
   { path: '/projetos/:projectId/cortes/:clipId/editor', element: <CompositionEditorPage /> },

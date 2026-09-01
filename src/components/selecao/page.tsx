@@ -148,7 +148,7 @@ export function SelectionPage() {
         subtitleMode: captionSettings.mode,
         manualSubtitleText: captionSettings.manualText || '',
         subtitleCorrections: captionSettings.corrections || '',
-        subtitleFont: captionSettings.font || 'inter',
+        subtitleFont: captionSettings.font || 'geist',
         subtitlePosition: captionSettings.position || 'bottom',
         subtitleDisplayMode: captionSettings.displayMode || 'block',
         subtitleLanguage: captionSettings.language || 'pt-BR',

@@ -5,14 +5,12 @@ import {
   FileVideo2,
   FolderOpen,
   Images,
-  LogOut,
+  LayoutTemplate,
   Scissors,
-  Settings,
   Sparkles,
   Star,
   Subtitles,
   Video,
-  Trash2,
 } from 'lucide-react';
 
 import { SidebarItem } from '../ui';
@@ -52,6 +50,21 @@ const workflowItems = [
   },
 ];
 
+const studioItems = [
+  {
+    label: 'Feed em massa',
+    to: '/instagram',
+    icon: LayoutTemplate,
+    end: true,
+  },
+  {
+    label: 'Editar vídeo',
+    to: '/editor-video',
+    icon: Video,
+    end: true,
+  },
+];
+
 const utilityItems = [
   {
     label: 'Inteligência editorial',
@@ -67,16 +80,6 @@ const utilityItems = [
     label: 'Favoritos',
     to: '/favoritos',
     icon: Star,
-  },
-  {
-    label: 'Lixeira',
-    to: '/lixeira',
-    icon: Trash2,
-  },
-  {
-    label: 'Ajustes',
-    to: '/ajustes',
-    icon: Settings,
   },
 ];
 
@@ -96,6 +99,17 @@ export function Header({}) {
         </div>
 
         <nav className="nav-stack">
+          <span className="nav-section-label">Criação rápida</span>
+          {studioItems.map(({ label, to, icon, end }) => (
+            <SidebarItem
+              end={end}
+              icon={icon}
+              key={label}
+              label={label}
+              to={to}
+            />
+          ))}
+          <div className="nav-divider" />
           <span className="nav-section-label">Fluxo de criação</span>
           {workflowItems.map(({ label, to, icon, end }) => (
             <SidebarItem
@@ -119,28 +133,6 @@ export function Header({}) {
         </nav>
       </div>
 
-      <div className="sidebar-footer">
-        <div className="sidebar-divider" />
-
-        <div className="profile">
-          <div className="profile-avatar" aria-hidden="true">
-            GC
-          </div>
-
-          <div className="profile-copy">
-            <strong>ClipCut</strong>
-            <span>Workspace local</span>
-          </div>
-        </div>
-
-        <button type="button" className="logout-button">
-          <span className="nav-icon">
-            <LogOut size={19} strokeWidth={1.8} />
-          </span>
-
-          <span className="sidebar-label">Sair</span>
-        </button>
-      </div>
     </aside>
   );
 }
