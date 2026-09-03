@@ -71,6 +71,7 @@ export function FilesPage() {
   const [layoutPreset, setLayoutPreset] = useState<CanvasPreset>('vertical');
   const [layoutImages, setLayoutImages] = useState<LayoutImageDraft[]>([]);
   const [processingVideoId, setProcessingVideoId] = useState<string | null>(null);
+  const [analysisProgress, setAnalysisProgress] = useState<{ videoId: string; progress: number } | null>(null);
   const [preparingVideoId, setPreparingVideoId] = useState<string | null>(null);
   const [aiStatus, setAiStatus] = useState<Record<string, boolean> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -192,7 +193,9 @@ export function FilesPage() {
   async function analyzeVideo(videoId: string) {
     try {
       setProcessingVideoId(videoId);
-      const updatedVideo = await analyzeUploadedVideo(videoId);
+      const updatedVideo = await analyzeUploadedVideo(videoId, (job) => {
+        setAnalysisProgress({ videoId, progress: job.progress });
+      });
       setVideos((currentVideos) =>
         currentVideos.map((video) => (video.id === videoId ? updatedVideo : video)),
       );
@@ -201,6 +204,7 @@ export function FilesPage() {
       setError('Nao foi possivel executar a analise de IA.');
     } finally {
       setProcessingVideoId(null);
+      setAnalysisProgress(null);
     }
   }
 
@@ -373,7 +377,11 @@ export function FilesPage() {
                     onClick={() => analyzeVideo(video.id)}
                   >
                     <Bot size={15} />
-                    {processingVideoId === video.id ? 'Analisando...' : 'Diagnóstico técnico'}
+                    {processingVideoId === video.id
+                      ? analysisProgress?.videoId === video.id
+                        ? `Analisando ${analysisProgress.progress}%`
+                        : 'Analisando...'
+                      : 'Diagnóstico técnico'}
                   </button>
                 </div>
               </article>
@@ -421,7 +429,11 @@ export function FilesPage() {
                   onClick={() => analyzeVideo(selectedVideo.id)}
                 >
                   <Bot size={15} />
-                  {processingVideoId === selectedVideo.id ? 'Analisando...' : 'Analisar com IA'}
+                  {processingVideoId === selectedVideo.id
+                    ? analysisProgress?.videoId === selectedVideo.id
+                      ? `Analisando ${analysisProgress.progress}%`
+                      : 'Analisando...'
+                    : 'Analisar com IA'}
                 </button>
                 {renderAnalysis(selectedVideo)}
               </div>

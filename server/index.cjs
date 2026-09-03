@@ -4,8 +4,10 @@ const { spawn } = require('child_process');
 const express = require('express');
 const fs = require('fs');
 const multer = require('multer');
+const net = require('net');
 const os = require('os');
 const path = require('path');
+const { Readable } = require('stream');
 const {
   createProject,
   hasMinimumClipDuration,
@@ -90,7 +92,15 @@ const PROJECTS_DIR = path.join(DATA_DIR, 'projects');
 const MANIFEST_PATH = path.join(VIDEOS_DIR, 'manifest.json');
 const GALLERY_MANIFEST_PATH = path.join(GALLERY_DIR, 'manifest.json');
 const EXPORT_JOBS_PATH = path.join(DATA_DIR, 'export-jobs.json');
+const ANALYSIS_JOBS_PATH = path.join(DATA_DIR, 'analysis-jobs.json');
+const ANALYSIS_DIR = path.join(DATA_DIR, 'analysis');
 const EXPORT_JOB_CONCURRENCY = Math.min(8, Math.max(1, Number(process.env.EXPORT_JOB_CONCURRENCY || 2)));
+const MAX_VIDEO_FILE_SIZE_BYTES = 1024 * 1024 * 1024;
+const MAX_IMPORT_URL_LENGTH = 2048;
+const configuredImportConcurrency = Number(process.env.CLIPCUT_IMPORT_CONCURRENCY || 2);
+const IMPORT_CONCURRENCY = Number.isFinite(configuredImportConcurrency) && configuredImportConcurrency > 0
+  ? Math.min(4, Math.max(1, Math.floor(configuredImportConcurrency)))
+  : 2;
 const AI_DIR = path.join(ROOT_DIR, 'ai');
 const DEFAULT_PYTHON_BIN = path.join(ROOT_DIR, '.venv', 'Scripts', 'python.exe');
 const configuredPythonBin = process.env.PYTHON_BIN;
@@ -106,9 +116,12 @@ fs.mkdirSync(VIDEOS_DIR, { recursive: true });
 fs.mkdirSync(GALLERY_DIR, { recursive: true });
 fs.mkdirSync(PROJECT_ASSETS_DIR, { recursive: true });
 fs.mkdirSync(PROJECTS_DIR, { recursive: true });
+fs.mkdirSync(ANALYSIS_DIR, { recursive: true });
 fs.mkdirSync(MATPLOTLIB_CACHE_DIR, { recursive: true });
 
 const editorialService = createEditorialService({ dataDir: DATA_DIR });
+const activeAnalysisJobs = new Set();
+const activeVideoImports = new Set();
 
 function readJsonFile(filePath, fallback) {
   if (!fs.existsSync(filePath)) {
@@ -170,6 +183,43 @@ function writeExportJobs(jobs) {
   writeJsonFileAtomic(EXPORT_JOBS_PATH, jobs);
 }
 
+function readAnalysisJobs() {
+  return readJsonArray(ANALYSIS_JOBS_PATH);
+}
+
+function writeAnalysisJobs(jobs) {
+  writeJsonFileAtomic(ANALYSIS_JOBS_PATH, jobs);
+}
+
+function getAnalysisJob(jobId) {
+  return readAnalysisJobs().find((job) => job.id === jobId) || null;
+}
+
+function updateAnalysisJob(jobId, updater) {
+  const jobs = readAnalysisJobs();
+  const jobIndex = jobs.findIndex((job) => job.id === jobId);
+  if (jobIndex === -1) {
+    return null;
+  }
+
+  const updatedJob = updater(cloneJson(jobs[jobIndex]));
+  if (!updatedJob) {
+    return null;
+  }
+
+  jobs[jobIndex] = updatedJob;
+  writeAnalysisJobs(jobs);
+  return updatedJob;
+}
+
+function publicAnalysisJob(job) {
+  if (!job) {
+    return null;
+  }
+
+  return { ...job };
+}
+
 function getExportJob(jobId) {
   return readExportJobs().find((job) => job.id === jobId) || null;
 }
@@ -203,6 +253,68 @@ function getVideoById(id) {
   const videos = readManifest();
   const video = videos.find((item) => item.id === id);
   return { videos, video };
+}
+
+function getVideoAnalysisPath(video) {
+  const videoId = String(video?.id || '');
+  if (!/^[a-zA-Z0-9-]+$/.test(videoId)) {
+    throw new Error('INVALID_ANALYSIS_PATH');
+  }
+
+  const analysisRoot = path.resolve(ANALYSIS_DIR);
+  const analysisPath = path.resolve(analysisRoot, `${videoId}.json`);
+  if (!analysisPath.startsWith(`${analysisRoot}${path.sep}`)) {
+    throw new Error('INVALID_ANALYSIS_PATH');
+  }
+
+  return analysisPath;
+}
+
+function sanitizeAnalysis(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeAnalysis(item));
+  }
+
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  return Object.entries(value).reduce((result, [key, nestedValue]) => {
+    if (/path$/i.test(key) || /url$/i.test(key)) {
+      return result;
+    }
+
+    result[key] = sanitizeAnalysis(nestedValue);
+    return result;
+  }, {});
+}
+
+function publicVideoSummary(video) {
+  if (!video) {
+    return null;
+  }
+
+  const {
+    analysis: _analysis,
+    analysisPath: _analysisPath,
+    sourceUrl: _sourceUrl,
+    clips: _clips,
+    ...summary
+  } = video;
+  return summary;
+}
+
+function publicVideoDetail(video) {
+  if (!video) {
+    return null;
+  }
+
+  const summary = publicVideoSummary(video);
+  return {
+    ...summary,
+    clips: cloneJson(video.clips || []),
+    analysis: sanitizeAnalysis(video.analysis),
+  };
 }
 
 function getSafeVideoPath(fileName) {
@@ -256,6 +368,125 @@ function getSafeGalleryPath(folderName) {
   }
 
   return resolvedGalleryPath;
+}
+
+function getGalleryFilePath(galleryPackage, fileName) {
+  const packagePath = getSafeGalleryPath(galleryPackage.folderName);
+  if (packagePath === path.resolve(GALLERY_DIR)) {
+    throw new Error('INVALID_GALLERY_FILE_PATH');
+  }
+  const safeFileName = path.basename(String(fileName || ''));
+  const filePath = path.resolve(packagePath, safeFileName);
+  if (filePath !== packagePath && !filePath.startsWith(`${packagePath}${path.sep}`)) {
+    throw new Error('INVALID_GALLERY_FILE_PATH');
+  }
+
+  return filePath;
+}
+
+function updateCrc32(crc, buffer) {
+  for (const byte of buffer) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+  }
+  return crc;
+}
+
+function createZipLocalHeader(fileName) {
+  const header = Buffer.alloc(30 + fileName.length);
+  header.writeUInt32LE(0x04034b50, 0);
+  header.writeUInt16LE(20, 4);
+  header.writeUInt16LE(0x0808, 6);
+  header.writeUInt16LE(0, 8);
+  header.writeUInt16LE(0, 10);
+  header.writeUInt16LE(0, 12);
+  header.writeUInt32LE(0, 14);
+  header.writeUInt32LE(0, 18);
+  header.writeUInt32LE(0, 22);
+  header.writeUInt16LE(fileName.length, 26);
+  header.writeUInt16LE(0, 28);
+  fileName.copy(header, 30);
+  return header;
+}
+
+function createZipDataDescriptor(checksum, size) {
+  const descriptor = Buffer.alloc(16);
+  descriptor.writeUInt32LE(0x08074b50, 0);
+  descriptor.writeUInt32LE(checksum, 4);
+  descriptor.writeUInt32LE(size, 8);
+  descriptor.writeUInt32LE(size, 12);
+  return descriptor;
+}
+
+function createZipCentralHeader(fileName, checksum, size, offset) {
+  const header = Buffer.alloc(46 + fileName.length);
+  header.writeUInt32LE(0x02014b50, 0);
+  header.writeUInt16LE(20, 4);
+  header.writeUInt16LE(20, 6);
+  header.writeUInt16LE(0x0808, 8);
+  header.writeUInt16LE(0, 10);
+  header.writeUInt16LE(0, 12);
+  header.writeUInt16LE(0, 14);
+  header.writeUInt32LE(checksum, 16);
+  header.writeUInt32LE(size, 20);
+  header.writeUInt32LE(size, 24);
+  header.writeUInt16LE(fileName.length, 28);
+  header.writeUInt16LE(0, 30);
+  header.writeUInt16LE(0, 32);
+  header.writeUInt16LE(0, 34);
+  header.writeUInt16LE(0, 36);
+  header.writeUInt32LE(0, 38);
+  header.writeUInt32LE(offset, 42);
+  fileName.copy(header, 46);
+  return header;
+}
+
+function createZipEndRecord(entryCount, centralDirectorySize, centralDirectoryOffset) {
+  const endRecord = Buffer.alloc(22);
+  endRecord.writeUInt32LE(0x06054b50, 0);
+  endRecord.writeUInt16LE(0, 4);
+  endRecord.writeUInt16LE(0, 6);
+  endRecord.writeUInt16LE(entryCount, 8);
+  endRecord.writeUInt16LE(entryCount, 10);
+  endRecord.writeUInt32LE(centralDirectorySize, 12);
+  endRecord.writeUInt32LE(centralDirectoryOffset, 16);
+  endRecord.writeUInt16LE(0, 20);
+  return endRecord;
+}
+
+async function* streamZipArchive(entries) {
+  const centralParts = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const fileName = Buffer.from(entry.name, 'utf8');
+    const localHeader = createZipLocalHeader(fileName);
+    const localOffset = offset;
+    yield localHeader;
+    offset += localHeader.length;
+
+    let checksum = 0xffffffff;
+    let size = 0;
+    const fileStream = fs.createReadStream(entry.filePath, { highWaterMark: 1024 * 1024 });
+    for await (const chunk of fileStream) {
+      checksum = updateCrc32(checksum, chunk);
+      size += chunk.length;
+      yield chunk;
+      offset += chunk.length;
+    }
+    checksum = (checksum ^ 0xffffffff) >>> 0;
+
+    const descriptor = createZipDataDescriptor(checksum, size);
+    yield descriptor;
+    offset += descriptor.length;
+    centralParts.push(createZipCentralHeader(fileName, checksum, size, localOffset));
+  }
+
+  const centralDirectory = Buffer.concat(centralParts);
+  yield centralDirectory;
+  yield createZipEndRecord(entries.length, centralDirectory.length, offset);
 }
 
 function updateVideo(id, updater) {
@@ -1066,7 +1297,7 @@ function createSubtitleFileFromEntries(packagePath, folderName, clipBaseName, en
   };
 }
 
-async function getFullVideoTranscript(videoPath, video) {
+async function getFullVideoTranscript(videoPath, video, shouldCancel = () => false) {
   const savedSegments = getSavedTranscriptSegments(video);
   const savedVersion = Number(video.analysis?.tools?.whisperx?.transcriptionVersion || 0);
   if (savedSegments.length > 0 && savedVersion >= 3) {
@@ -1080,6 +1311,7 @@ async function getFullVideoTranscript(videoPath, video) {
   }
 
   try {
+    const durationSeconds = Math.max(Number(video.durationSeconds || 1), 1);
     const transcription = await runPythonJson(
       'transcribe_clip.py',
       [
@@ -1088,9 +1320,12 @@ async function getFullVideoTranscript(videoPath, video) {
         '--start',
         '0',
         '--duration',
-        String(Math.max(Number(video.durationSeconds || 1), 1)),
+        String(durationSeconds),
+        '--chunk-duration',
+        '300',
       ],
-      20 * 60 * 1000,
+      Math.min(4 * 60 * 60 * 1000, Math.max(20 * 60 * 1000, durationSeconds * 60 * 1000)),
+      shouldCancel,
     );
 
     if (transcription?.ok && Array.isArray(transcription.segments) && transcription.segments.length > 0) {
@@ -1620,8 +1855,9 @@ function exportClipWithFfmpeg(
   });
 }
 
-function runPythonJson(scriptName, args = [], timeoutMs = 10 * 60 * 1000) {
+function runPythonJson(scriptName, args = [], timeoutMs = 10 * 60 * 1000, shouldCancel = () => false) {
   return new Promise((resolve, reject) => {
+    let settled = false;
     const child = spawn(PYTHON_BIN, [path.join(AI_DIR, scriptName), ...args], {
       cwd: ROOT_DIR,
       env: {
@@ -1632,10 +1868,35 @@ function runPythonJson(scriptName, args = [], timeoutMs = 10 * 60 * 1000) {
     });
     let stdout = '';
     let stderr = '';
+    const finish = (callback) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      clearInterval(cancellationTimer);
+      callback();
+    };
     const timer = setTimeout(() => {
-      child.kill();
-      reject(new Error(`Python script timed out: ${scriptName}`));
+      try {
+        child.kill();
+      } catch {
+        // O processo pode ter terminado no mesmo instante do timeout.
+      }
+      finish(() => reject(new Error(`Python script timed out: ${scriptName}`)));
     }, timeoutMs);
+    const cancellationTimer = setInterval(() => {
+      if (!shouldCancel()) {
+        return;
+      }
+
+      try {
+        child.kill();
+      } catch {
+        // O processo pode ter terminado no mesmo instante do cancelamento.
+      }
+      finish(() => reject(createExportJobError('JOB_CANCELLED', 'Exportacao cancelada.')));
+    }, 1000);
 
     child.stdout.on('data', (chunk) => {
       stdout += chunk.toString();
@@ -1644,24 +1905,119 @@ function runPythonJson(scriptName, args = [], timeoutMs = 10 * 60 * 1000) {
       stderr += chunk.toString();
     });
     child.on('error', (error) => {
-      clearTimeout(timer);
-      reject(error);
+      finish(() => reject(error));
     });
     child.on('close', (code) => {
-      clearTimeout(timer);
+      finish(() => {
+        if (code !== 0) {
+          reject(new Error(stderr || `Python script exited with code ${code}`));
+          return;
+        }
 
-      if (code !== 0) {
-        reject(new Error(stderr || `Python script exited with code ${code}`));
-        return;
-      }
-
-      try {
-        resolve(JSON.parse(stdout.trim().split(/\r?\n/).at(-1) || '{}'));
-      } catch (error) {
-        reject(new Error(`Invalid JSON from ${scriptName}: ${error.message}`));
-      }
+        try {
+          resolve(JSON.parse(stdout.trim().split(/\r?\n/).at(-1) || '{}'));
+        } catch (error) {
+          reject(new Error(`Invalid JSON from ${scriptName}: ${error.message}`));
+        }
+      });
     });
   });
+}
+
+function createAnalysisJob(video) {
+  const now = new Date().toISOString();
+  return {
+    version: 1,
+    id: crypto.randomUUID(),
+    videoId: video.id,
+    sourceName: video.originalName,
+    status: 'queued',
+    phase: 'queued',
+    progress: 0,
+    error: null,
+    createdAt: now,
+    startedAt: null,
+    finishedAt: null,
+    updatedAt: now,
+  };
+}
+
+async function processAnalysisJob(startedJob) {
+  const jobId = startedJob.id;
+  activeAnalysisJobs.add(jobId);
+
+  try {
+    const { video } = getVideoById(startedJob.videoId);
+    if (!video) {
+      throw new Error('Video nao encontrado.');
+    }
+
+    const videoPath = getSafeVideoPath(video.fileName);
+    if (!fs.existsSync(videoPath)) {
+      throw new Error('Arquivo de video nao encontrado.');
+    }
+
+    const analysisPath = getVideoAnalysisPath(video);
+    const startedAt = new Date().toISOString();
+    updateAnalysisJob(jobId, (currentJob) => ({
+      ...currentJob,
+      status: 'running',
+      phase: 'processing',
+      progress: 5,
+      startedAt,
+      updatedAt: startedAt,
+    }));
+
+    const analysis = await runPythonJson(
+      'process_video.py',
+      ['--video', videoPath, '--output', analysisPath],
+      Math.min(4 * 60 * 60 * 1000, Math.max(20 * 60 * 1000, Number(video.durationSeconds || 1) * 60 * 1000)),
+    );
+    const enrichedAnalysis = {
+      ...analysis,
+      brollSuggestions: buildBrollSuggestions({ analysis }),
+    };
+    const updatedVideo = updateVideo(video.id, (currentVideo) => ({
+      ...currentVideo,
+      aiStatus: 'done',
+      analysisError: null,
+      analysis: enrichedAnalysis,
+      analysisPath: path.basename(analysisPath),
+      analyzedAt: new Date().toISOString(),
+    }));
+    const finishedAt = new Date().toISOString();
+
+    updateAnalysisJob(jobId, (currentJob) => ({
+      ...currentJob,
+      status: 'succeeded',
+      phase: 'completed',
+      progress: 100,
+      error: null,
+      finishedAt,
+      updatedAt: finishedAt,
+    }));
+
+    return updatedVideo;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Falha ao processar IA.';
+    updateVideo(startedJob.videoId, (currentVideo) => ({
+      ...currentVideo,
+      aiStatus: 'error',
+      analysisError: message,
+    }));
+    const finishedAt = new Date().toISOString();
+    updateAnalysisJob(jobId, (currentJob) => ({
+      ...currentJob,
+      status: 'failed',
+      phase: 'failed',
+      error: message,
+      finishedAt,
+      updatedAt: finishedAt,
+    }));
+    return null;
+  } finally {
+    activeAnalysisJobs.delete(jobId);
+  }
 }
 
 function resolveYtDlpCommand() {
@@ -1735,10 +2091,87 @@ function runExternalCommand(binary, args, timeoutMs) {
   });
 }
 
+async function probeVideoDuration(videoPath) {
+  const ffprobeBin = findExecutable('ffprobe', 'FFPROBE_BIN');
+  if (!ffprobeBin) {
+    const error = new Error('ffprobe nao encontrado. Instale o FFmpeg ou configure FFPROBE_BIN para validar videos.');
+    error.code = 'FFPROBE_MISSING';
+    throw error;
+  }
+
+  let probeResult;
+  try {
+    probeResult = await runExternalCommand(
+      ffprobeBin,
+      [
+        '-v',
+        'error',
+        '-show_entries',
+        'format=duration',
+        '-of',
+        'default=noprint_wrappers=1:nokey=1',
+        videoPath,
+      ],
+      2 * 60 * 1000,
+    );
+  } catch {
+    throw new Error('Nao foi possivel validar a duracao do video enviado.');
+  }
+
+  const durationSeconds = Number(probeResult.stdout.trim().split(/\r?\n/).at(-1));
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+    throw new Error('Nao foi possivel obter uma duracao valida do video enviado.');
+  }
+
+  return durationSeconds;
+}
+
+function isPrivateIpAddress(hostname) {
+  const normalizedHostname = String(hostname || '').replace(/^\[|\]$/g, '').toLowerCase();
+  const ipVersion = net.isIP(normalizedHostname);
+
+  if (ipVersion === 4) {
+    const octets = normalizedHostname.split('.').map(Number);
+    const [first, second] = octets;
+    return first === 0 ||
+      first === 10 ||
+      first === 127 ||
+      (first === 169 && second === 254) ||
+      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 192 && second === 168) ||
+      (first === 100 && second >= 64 && second <= 127) ||
+      (first === 198 && second >= 18 && second <= 19) ||
+      first >= 224;
+  }
+
+  if (ipVersion === 6) {
+    if (normalizedHostname.startsWith('::ffff:')) {
+      return isPrivateIpAddress(normalizedHostname.slice('::ffff:'.length));
+    }
+
+    return normalizedHostname === '::' ||
+      normalizedHostname === '::1' ||
+      normalizedHostname.startsWith('fc') ||
+      normalizedHostname.startsWith('fd') ||
+      /^fe[89ab]/.test(normalizedHostname);
+  }
+
+  return false;
+}
+
 function normalizeImportUrl(value) {
+  const rawValue = String(value || '').trim();
+  if (!rawValue) {
+    throw new Error('Informe um link de video valido.');
+  }
+
+  if (rawValue.length > MAX_IMPORT_URL_LENGTH) {
+    throw new Error(`O link precisa ter no maximo ${MAX_IMPORT_URL_LENGTH} caracteres.`);
+  }
+
   let parsedUrl;
   try {
-    parsedUrl = new URL(String(value || '').trim());
+    parsedUrl = new URL(rawValue);
   } catch {
     throw new Error('Informe um link de video valido.');
   }
@@ -1747,13 +2180,104 @@ function normalizeImportUrl(value) {
     throw new Error('O link precisa usar HTTP ou HTTPS e nao pode conter credenciais.');
   }
 
-  const hostname = parsedUrl.hostname.toLowerCase();
-  const isLocalHost = hostname === 'localhost' || hostname === '::1' || /^127\./.test(hostname) || /^0\.0\.0\.0$/.test(hostname);
+  const hostname = parsedUrl.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  const isLocalHost = hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
+    hostname.endsWith('.local') ||
+    hostname.endsWith('.internal') ||
+    hostname.endsWith('.lan') ||
+    isPrivateIpAddress(hostname);
+  if (!hostname || hostname.length > 253) {
+    throw new Error('Informe um link de video valido.');
+  }
+
   if (isLocalHost) {
     throw new Error('Links para enderecos locais nao podem ser importados.');
   }
 
   return parsedUrl.href;
+}
+
+function parseTimestampSeconds(value) {
+  const text = decodeURIComponent(String(value || '').trim()).toLowerCase();
+  if (!text) {
+    return null;
+  }
+
+  if (/^\d+(?:\.\d+)?$/.test(text)) {
+    return Number(text);
+  }
+
+  const colonParts = text.split(':');
+  if (colonParts.length >= 2 && colonParts.length <= 3 && colonParts.every((part) => /^\d+(?:\.\d+)?$/.test(part))) {
+    const numbers = colonParts.map(Number);
+    return numbers.length === 2
+      ? numbers[0] * 60 + numbers[1]
+      : numbers[0] * 3600 + numbers[1] * 60 + numbers[2];
+  }
+
+  const unitMatch = text.match(/^(?:(\d+(?:\.\d+)?)h)?(?:(\d+(?:\.\d+)?)m)?(?:(\d+(?:\.\d+)?)s)?$/);
+  if (!unitMatch || !unitMatch.slice(1).some(Boolean)) {
+    return null;
+  }
+
+  return Number(unitMatch[1] || 0) * 3600 + Number(unitMatch[2] || 0) * 60 + Number(unitMatch[3] || 0);
+}
+
+function parseImportTimeRange(sourceUrl, durationSeconds) {
+  const parsedUrl = new URL(sourceUrl);
+  const hashParams = new URLSearchParams(parsedUrl.hash.replace(/^#/, ''));
+  const rawStart = parsedUrl.searchParams.get('t') || parsedUrl.searchParams.get('start') || parsedUrl.searchParams.get('time_continue') || parsedUrl.searchParams.get('begin') || hashParams.get('t');
+  const rawEnd = parsedUrl.searchParams.get('end') || parsedUrl.searchParams.get('end_time') || parsedUrl.searchParams.get('to') || parsedUrl.searchParams.get('stop') || hashParams.get('end');
+  const rangeParts = String(rawStart || '').split(/[-,]/).map((part) => part.trim()).filter(Boolean);
+  const startSeconds = parseTimestampSeconds(rangeParts[0] || rawStart) ?? 0;
+  const embeddedEndSeconds = parseTimestampSeconds(rangeParts[1]);
+  const requestedEndSeconds = parseTimestampSeconds(rawEnd) ?? embeddedEndSeconds ?? durationSeconds;
+
+  if (!Number.isFinite(startSeconds) || !Number.isFinite(requestedEndSeconds)) {
+    throw new Error('A minutagem informada no link do video e invalida.');
+  }
+
+  const start = Math.min(durationSeconds, Math.max(0, startSeconds));
+  const end = Math.min(durationSeconds, Math.max(0, requestedEndSeconds));
+  if (end <= start || end - start < MIN_CLIP_DURATION_SECONDS) {
+    throw new Error(`A minutagem do link precisa conter pelo menos ${MIN_CLIP_DURATION_SECONDS} segundos.`);
+  }
+
+  return {
+    startSeconds: Number(start.toFixed(3)),
+    endSeconds: Number(end.toFixed(3)),
+    durationSeconds: Number((end - start).toFixed(3)),
+    hasRange: start > 0 || end < durationSeconds,
+  };
+}
+
+function formatYtDlpTime(seconds) {
+  const milliseconds = Math.round(Math.max(0, Number(seconds) || 0) * 1000);
+  const hours = Math.floor(milliseconds / 3600000);
+  const minutes = Math.floor((milliseconds % 3600000) / 60000);
+  const remainingSeconds = (milliseconds % 60000) / 1000;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${remainingSeconds.toFixed(3).padStart(6, '0')}`;
+}
+
+function adjustRecommendationsToRange(recommendations, range) {
+  return (Array.isArray(recommendations) ? recommendations : [])
+    .map((recommendation) => {
+      const start = Math.max(Number(recommendation.startSeconds) || 0, range.startSeconds);
+      const end = Math.min(Number(recommendation.endSeconds) || 0, range.endSeconds);
+      if (!hasMinimumDuration(start, end)) {
+        return null;
+      }
+
+      return {
+        ...recommendation,
+        startSeconds: Number((start - range.startSeconds).toFixed(3)),
+        endSeconds: Number((end - range.startSeconds).toFixed(3)),
+        durationSeconds: Number((end - start).toFixed(3)),
+      };
+    })
+    .filter(Boolean)
+    .map((recommendation, index) => ({ ...recommendation, id: `${recommendation.id || 'recommendation'}-${index + 1}`, rank: index + 1 }));
 }
 
 function getImportProvider(url) {
@@ -1910,11 +2434,15 @@ function extractSvgHeatmapMarkers(html, durationSeconds) {
 
 function buildAudienceRecommendations(markers, durationSeconds) {
   const maxRecommendations = Math.min(12, getMaxClipCount(durationSeconds));
-  const maxStart = Math.max(0, durationSeconds - MIN_CLIP_DURATION_SECONDS);
+  const recommendationWindowSeconds = Math.min(
+    durationSeconds,
+    Math.max(15, Math.min(75, durationSeconds * 0.03)),
+  );
+  const maxStart = Math.max(0, durationSeconds - recommendationWindowSeconds);
   const candidates = markers.map((marker) => {
     const center = (marker.startSeconds + marker.endSeconds) / 2;
-    const startSeconds = Math.max(0, Math.min(maxStart, center - MIN_CLIP_DURATION_SECONDS / 2));
-    const endSeconds = Math.min(durationSeconds, startSeconds + MIN_CLIP_DURATION_SECONDS);
+    const startSeconds = Math.max(0, Math.min(maxStart, center - recommendationWindowSeconds / 2));
+    const endSeconds = Math.min(durationSeconds, startSeconds + recommendationWindowSeconds);
     const overlaps = markers.filter((currentMarker) => currentMarker.endSeconds > startSeconds && currentMarker.startSeconds < endSeconds);
     const totalOverlap = overlaps.reduce((total, currentMarker) => {
       return total + Math.max(0, Math.min(endSeconds, currentMarker.endSeconds) - Math.max(startSeconds, currentMarker.startSeconds));
@@ -2079,8 +2607,10 @@ async function importVideoFromUrl(rawUrl) {
   }
 
   if (durationSeconds < MIN_CLIP_DURATION_SECONDS) {
-    throw new Error('O video do link precisa ter pelo menos 1 minuto.');
+    throw new Error(`O video do link precisa ter pelo menos ${MIN_CLIP_DURATION_SECONDS} segundos.`);
   }
+
+  const timeRange = parseImportTimeRange(sourceUrl, durationSeconds);
 
   const fileStem = `${Date.now()}-${crypto.randomUUID()}-${sanitizeFileName(metadata.title || 'video-importado').slice(0, 80) || 'video-importado'}`;
   const outputTemplate = path.join(VIDEOS_DIR, `${fileStem}.%(ext)s`);
@@ -2093,10 +2623,15 @@ async function importVideoFromUrl(rawUrl) {
         '--no-playlist',
         '--no-warnings',
         '--no-progress',
+        '--max-filesize',
+        '1G',
         '--format',
         'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b',
         '--merge-output-format',
         'mp4',
+        ...(timeRange.hasRange
+          ? ['--download-sections', `*${formatYtDlpTime(timeRange.startSeconds)}-${formatYtDlpTime(timeRange.endSeconds)}`, '--force-keyframes-at-cuts']
+          : []),
         '--output',
         outputTemplate,
         sourceUrl,
@@ -2109,7 +2644,12 @@ async function importVideoFromUrl(rawUrl) {
       throw new Error('O provedor concluiu sem produzir um arquivo de video.');
     }
 
+    if (downloaded.size > MAX_VIDEO_FILE_SIZE_BYTES) {
+      throw new Error('O video importado excede o limite de 1 GB.');
+    }
+
     const audience = await getYouTubeAudienceRecommendations(sourceUrl, durationSeconds);
+    const rangeRecommendations = adjustRecommendationsToRange(audience.recommendations, timeRange);
     const extension = path.extname(downloaded.fileName).toLowerCase();
     const importedVideo = {
       id: crypto.randomUUID(),
@@ -2117,13 +2657,14 @@ async function importVideoFromUrl(rawUrl) {
       fileName: downloaded.fileName,
       type: extension === '.webm' ? 'video/webm' : 'video/mp4',
       size: downloaded.size,
-      durationSeconds,
+      durationSeconds: timeRange.durationSeconds,
       createdAt: new Date().toISOString(),
       url: `/videos/${downloaded.fileName}`,
       sourceType: 'url',
       sourceUrl,
       sourceProvider: getImportProvider(sourceUrl),
-      audienceRecommendations: audience.recommendations,
+      audienceRecommendations: rangeRecommendations,
+      ...(timeRange.hasRange ? { sourceRange: timeRange } : {}),
       audienceInsight: {
         source: audience.source,
         available: audience.available,
@@ -2160,7 +2701,7 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: {
-    fileSize: 1024 * 1024 * 1024,
+    fileSize: MAX_VIDEO_FILE_SIZE_BYTES,
   },
   fileFilter: (_request, file, callback) => {
     if (!file.mimetype.startsWith('video/')) {
@@ -2218,9 +2759,28 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
-app.use('/videos', express.static(VIDEOS_DIR));
-app.use('/gallery', express.static(GALLERY_DIR));
-app.use('/project-assets', express.static(PROJECT_ASSETS_DIR));
+
+function blockPrivateStaticMetadata(request, response, next) {
+  let requestPath;
+  try {
+    requestPath = decodeURIComponent(request.path || '');
+  } catch {
+    response.status(400).end();
+    return;
+  }
+
+  const requestedFileName = requestPath.replace(/[\\/]+$/, '').split(/[\\/]/).at(-1) || '';
+  if (path.extname(requestedFileName).toLowerCase() === '.json') {
+    response.status(404).end();
+    return;
+  }
+
+  next();
+}
+
+app.use('/videos', blockPrivateStaticMetadata, express.static(VIDEOS_DIR));
+app.use('/gallery', blockPrivateStaticMetadata, express.static(GALLERY_DIR));
+app.use('/project-assets', blockPrivateStaticMetadata, express.static(PROJECT_ASSETS_DIR));
 
 if (fs.existsSync(DIST_DIR)) {
   app.use(express.static(DIST_DIR));
@@ -2298,9 +2858,19 @@ app.get('/api/editorial/status', async (_request, response) => {
 app.get('/api/videos', (_request, response) => {
   const videos = readManifest().sort((first, second) =>
     second.createdAt.localeCompare(first.createdAt),
-  );
+  ).map(publicVideoSummary);
 
   response.json({ videos });
+});
+
+app.get('/api/videos/:id', (request, response) => {
+  const { video } = getVideoById(request.params.id);
+  if (!video) {
+    response.status(404).json({ message: 'Video nao encontrado.' });
+    return;
+  }
+
+  response.json({ video: publicVideoDetail(video) });
 });
 
 app.get('/api/clips', (_request, response) => {
@@ -2341,14 +2911,14 @@ app.post('/api/projects', (request, response) => {
       : availableClips;
 
   if (layoutOnly !== true && Number(video.durationSeconds || 0) < MIN_CLIP_DURATION_SECONDS) {
-    response.status(422).json({ message: 'O video precisa ter pelo menos 1 minuto para criar cortes.' });
+    response.status(422).json({ message: `O video precisa ter pelo menos ${MIN_CLIP_DURATION_SECONDS} segundos para criar cortes.` });
     return;
   }
 
   if (layoutOnly !== true && selectedClips.some((clip) =>
     !hasMinimumDuration(clip.startSeconds, clip.endSeconds),
   )) {
-    response.status(422).json({ message: 'Cada corte precisa ter pelo menos 1 minuto.' });
+    response.status(422).json({ message: `Cada corte precisa ter pelo menos ${MIN_CLIP_DURATION_SECONDS} segundos.` });
     return;
   }
 
@@ -2701,7 +3271,7 @@ app.post('/api/projects/:id/generate-clips', async (request, response) => {
   }
 
   if (Number(video.durationSeconds || 0) < MIN_CLIP_DURATION_SECONDS) {
-    response.status(422).json({ message: 'O video precisa ter pelo menos 1 minuto para gerar cortes.' });
+    response.status(422).json({ message: `O video precisa ter pelo menos ${MIN_CLIP_DURATION_SECONDS} segundos para gerar cortes.` });
     return;
   }
 
@@ -2724,9 +3294,14 @@ app.post('/api/projects/:id/generate-clips', async (request, response) => {
     console.error(`[captions] preparation failed for project ${project.id}: ${error.message}`);
     captionPreparationWarning = error instanceof Error ? error.message : 'Preparacao de legendas automaticas indisponivel.';
   }
-  const clips = buildSuggestedClips(video, request.body || {});
+  const clips = buildSuggestedClips(video, {
+    mode: 'best-moments',
+    targetDurationSeconds: 45,
+    targetClipCount: 5,
+    ...(request.body || {}),
+  });
   if (!Array.isArray(clips) || clips.length === 0) {
-    response.status(400).json({ message: 'Nao foi possivel gerar cortes de pelo menos 1 minuto para este video.' });
+    response.status(400).json({ message: `Nao foi possivel gerar cortes de pelo menos ${MIN_CLIP_DURATION_SECONDS} segundos para este video.` });
     return;
   }
   const generatedProject = createProject(video, clips, layoutConfig);
@@ -2794,12 +3369,13 @@ app.post('/api/projects/:id/analyze', (request, response) => {
     return;
   }
 
+  const sourceVideo = readManifest().find((video) => video.id === project.sourceVideoId) || null;
   const reviewedAt = new Date().toISOString();
   const reviewedProject = {
     ...project,
     compositions: (project.compositions || []).map((composition) => ({
       ...composition,
-      review: reviewComposition(composition),
+      review: reviewComposition(composition, { video: sourceVideo }),
     })),
     updatedAt: reviewedAt,
   };
@@ -2822,10 +3398,10 @@ app.post('/api/projects/:id/approve-ready', (request, response) => {
     return;
   }
 
-  const blockedComposition = compositions.find((composition) => composition.review?.status !== 'ready');
-  if (blockedComposition) {
+  const readyCompositions = compositions.filter((composition) => composition.review?.status === 'ready');
+  if (readyCompositions.length === 0) {
     response.status(409).json({
-      message: 'Analise e ajuste todos os cortes antes de aprovar em lote.',
+      message: 'Execute a analise antes de aprovar os cortes validos.',
     });
     return;
   }
@@ -2833,7 +3409,7 @@ app.post('/api/projects/:id/approve-ready', (request, response) => {
   const approvedAt = new Date().toISOString();
   let approvedCount = 0;
   const approvedCompositions = compositions.map((composition) => {
-    if (composition.status === 'approved') {
+    if (composition.review?.status !== 'ready' || composition.status === 'approved') {
       return composition;
     }
 
@@ -2871,7 +3447,7 @@ app.put('/api/compositions/:id', (request, response) => {
   }
 
   if (!project.isLayoutDraft && !hasMinimumClipDuration(incomingComposition)) {
-    response.status(422).json({ message: 'Cada corte precisa ter pelo menos 1 minuto.' });
+    response.status(422).json({ message: `Cada corte precisa ter pelo menos ${MIN_CLIP_DURATION_SECONDS} segundos.` });
     return;
   }
 
@@ -3020,7 +3596,7 @@ app.post('/api/videos/:id/clips', (request, response) => {
   }
 
   if (Number(video.durationSeconds || 0) < MIN_CLIP_DURATION_SECONDS) {
-    response.status(422).json({ message: 'O video precisa ter pelo menos 1 minuto para gerar cortes.' });
+    response.status(422).json({ message: `O video precisa ter pelo menos ${MIN_CLIP_DURATION_SECONDS} segundos para gerar cortes.` });
     return;
   }
 
@@ -3032,7 +3608,7 @@ app.post('/api/videos/:id/clips', (request, response) => {
   }));
 
   response.status(201).json({
-    video: updatedVideo,
+    video: publicVideoDetail(updatedVideo),
     clips,
     maxClipCount: getMaxClipCount(video.durationSeconds),
   });
@@ -3098,7 +3674,11 @@ function normalizeExportOptions(input = {}) {
 
 function getExportJobWorkspace(job) {
   try {
-    return getSafeGalleryPath(job.folderName);
+    const workspacePath = getSafeGalleryPath(job.folderName);
+    if (workspacePath === path.resolve(GALLERY_DIR)) {
+      throw new Error('INVALID_GALLERY_PATH');
+    }
+    return workspacePath;
   } catch {
     throw createExportJobError('INVALID_GALLERY_PATH', 'Caminho de galeria invalido.');
   }
@@ -3358,7 +3938,10 @@ async function processExportJob(startedJob) {
         progress: 5,
         updatedAt: new Date().toISOString(),
       }));
-      fullVideoTranscript = await getFullVideoTranscript(videoPath, video);
+      fullVideoTranscript = await getFullVideoTranscript(videoPath, video, () => {
+        const currentJob = getExportJob(job.id);
+        return !currentJob || currentJob.cancelRequested || currentJob.status === 'cancelled';
+      });
       if (!fullVideoTranscript?.ok) {
         throw createExportJobError(
           'CAPTIONS_FAILED',
@@ -3695,6 +4278,38 @@ function recoverExportJobs() {
   }
 }
 
+function recoverAnalysisJobs() {
+  const jobs = readAnalysisJobs();
+  let changed = false;
+  const recoveredJobs = jobs.map((job) => {
+    if (!['queued', 'running'].includes(job.status)) {
+      return job;
+    }
+
+    changed = true;
+    const updatedAt = new Date().toISOString();
+    updateVideo(job.videoId, (video) => video.analysisJobId === job.id
+      ? {
+          ...video,
+          aiStatus: 'error',
+          analysisError: 'A analise foi interrompida porque a API foi reiniciada.',
+        }
+      : video);
+    return {
+      ...job,
+      status: 'failed',
+      phase: 'failed',
+      error: 'A analise foi interrompida porque a API foi reiniciada.',
+      finishedAt: updatedAt,
+      updatedAt,
+    };
+  });
+
+  if (changed) {
+    writeAnalysisJobs(recoveredJobs);
+  }
+}
+
 app.get('/api/export-jobs', (_request, response) => {
   const jobs = readExportJobs()
     .sort((first, second) => String(second.createdAt || '').localeCompare(String(first.createdAt || '')))
@@ -3710,6 +4325,23 @@ app.get('/api/export-jobs/:id', (request, response) => {
     return;
   }
   response.json({ job: publicExportJob(job) });
+});
+
+app.delete('/api/export-jobs/:id', (request, response) => {
+  const job = getExportJob(request.params.id);
+  if (!job) {
+    response.status(404).json({ message: 'Job de exportacao nao encontrado.' });
+    return;
+  }
+
+  if (!['failed', 'cancelled'].includes(job.status)) {
+    response.status(409).json({ message: 'Somente jobs falhos ou cancelados podem ser removidos.' });
+    return;
+  }
+
+  cleanupExportJobWorkspace(job, true);
+  writeExportJobs(readExportJobs().filter((currentJob) => currentJob.id !== job.id));
+  response.status(204).send();
 });
 
 app.post('/api/export-jobs/:id/cancel', (request, response) => {
@@ -3819,6 +4451,148 @@ app.get('/api/gallery', (_request, response) => {
   response.json({ packages });
 });
 
+app.get('/api/gallery/:id/download', async (request, response) => {
+  const galleryPackage = readGalleryManifest().find((item) => item.id === request.params.id);
+  if (!galleryPackage) {
+    response.status(404).json({ message: 'Pacote da galeria nao encontrado.' });
+    return;
+  }
+
+  const requestedClipIds = String(request.query.clipIds || '')
+    .split(',')
+    .map((clipId) => clipId.trim())
+    .filter(Boolean);
+  const selectedClips = requestedClipIds.length > 0
+    ? galleryPackage.clips.filter((clip) => requestedClipIds.includes(clip.id))
+    : galleryPackage.clips;
+  if (selectedClips.length === 0) {
+    response.status(400).json({ message: 'Nenhum corte selecionado para baixar.' });
+    return;
+  }
+
+  const entries = [];
+  for (const clip of selectedClips) {
+    let filePath;
+    try {
+      filePath = getGalleryFilePath(galleryPackage, clip.fileName);
+    } catch {
+      continue;
+    }
+
+    try {
+      const fileStats = await fs.promises.stat(filePath);
+      if (fileStats.isFile()) {
+        entries.push({ name: path.basename(filePath), filePath });
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  if (entries.length === 0) {
+    response.status(404).json({ message: 'Os arquivos deste pacote nao estao mais disponiveis.' });
+    return;
+  }
+
+  const archiveName = `${sanitizeFileName(galleryPackage.title || galleryPackage.sourceName) || 'cortes'}.zip`;
+  response.setHeader('Content-Type', 'application/zip');
+  response.setHeader('Content-Disposition', `attachment; filename="${archiveName}"`);
+
+  const archiveStream = Readable.from(streamZipArchive(entries));
+  const abortArchive = () => {
+    if (!response.writableEnded) {
+      archiveStream.destroy();
+    }
+  };
+  const handleArchiveError = (error) => {
+    response.removeListener('close', abortArchive);
+    if (!response.headersSent) {
+      response.status(500).json({ message: 'Nao foi possivel gerar o arquivo ZIP.' });
+      return;
+    }
+    response.destroy(error);
+  };
+
+  response.once('close', abortArchive);
+  response.once('finish', () => response.removeListener('close', abortArchive));
+  archiveStream.once('error', handleArchiveError);
+  archiveStream.pipe(response);
+});
+
+app.delete('/api/gallery/:id/clips/:clipId', (request, response) => {
+  const packages = readGalleryManifest();
+  const packageIndex = packages.findIndex((item) => item.id === request.params.id);
+  const galleryPackage = packageIndex === -1 ? null : packages[packageIndex];
+  if (!galleryPackage) {
+    response.status(404).json({ message: 'Pacote da galeria nao encontrado.' });
+    return;
+  }
+
+  const clip = galleryPackage.clips.find((currentClip) => currentClip.id === request.params.clipId);
+  if (!clip) {
+    response.status(404).json({ message: 'Corte da galeria nao encontrado.' });
+    return;
+  }
+
+  try {
+    const filePath = getGalleryFilePath(galleryPackage, clip.fileName);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+    if (clip.subtitlePath) {
+      const subtitleFileName = path.basename(new URL(`http://clipcut.local${clip.subtitlePath}`).pathname);
+      const subtitlePath = getGalleryFilePath(galleryPackage, subtitleFileName);
+      if (fs.existsSync(subtitlePath)) {
+        fs.unlinkSync(subtitlePath);
+      }
+    }
+  } catch {
+    response.status(400).json({ message: 'Caminho de arquivo da galeria invalido.' });
+    return;
+  }
+
+  const remainingClips = galleryPackage.clips.filter((currentClip) => currentClip.id !== clip.id);
+  if (remainingClips.length === 0) {
+    const packagePath = getSafeGalleryPath(galleryPackage.folderName);
+    if (packagePath !== path.resolve(GALLERY_DIR) && fs.existsSync(packagePath)) {
+      fs.rmSync(packagePath, { recursive: true, force: true });
+    }
+    writeGalleryManifest(packages.filter((_currentPackage, index) => index !== packageIndex));
+    response.status(204).send();
+    return;
+  }
+
+  packages[packageIndex] = { ...galleryPackage, clips: remainingClips };
+  writeGalleryManifest(packages);
+  response.status(204).send();
+});
+
+app.delete('/api/gallery/:id', (request, response) => {
+  const packages = readGalleryManifest();
+  const galleryPackage = packages.find((item) => item.id === request.params.id);
+  if (!galleryPackage) {
+    response.status(404).json({ message: 'Pacote da galeria nao encontrado.' });
+    return;
+  }
+
+  let packagePath;
+  try {
+    packagePath = getSafeGalleryPath(galleryPackage.folderName);
+    if (packagePath === path.resolve(GALLERY_DIR)) {
+      throw new Error('INVALID_GALLERY_PATH');
+    }
+  } catch {
+    response.status(400).json({ message: 'Caminho de galeria invalido.' });
+    return;
+  }
+
+  if (fs.existsSync(packagePath)) {
+    fs.rmSync(packagePath, { recursive: true, force: true });
+  }
+  writeGalleryManifest(packages.filter((currentPackage) => currentPackage.id !== galleryPackage.id));
+  response.status(204).send();
+});
+
 app.post('/api/gallery/export', (request, response) => {
   const {
     videoId,
@@ -3866,7 +4640,7 @@ app.post('/api/gallery/export', (request, response) => {
   if (selectedClips.some((clip) =>
     !hasMinimumDuration(clip.startSeconds, clip.endSeconds),
   )) {
-    response.status(422).json({ message: 'Todos os cortes precisam ter pelo menos 1 minuto para exportar.' });
+    response.status(422).json({ message: `Todos os cortes precisam ter pelo menos ${MIN_CLIP_DURATION_SECONDS} segundos para exportar.` });
     return;
   }
 
@@ -3904,25 +4678,58 @@ app.post('/api/gallery/export', (request, response) => {
 });
 
 app.post('/api/videos/import-url', async (request, response) => {
+  let sourceUrl;
   try {
-    const video = await importVideoFromUrl(request.body?.url);
-    response.status(201).json({ video });
+    sourceUrl = normalizeImportUrl(request.body?.url);
+  } catch (error) {
+    response.status(422).json({ message: error?.message || 'Informe um link de video valido.' });
+    return;
+  }
+
+  if (activeVideoImports.size >= IMPORT_CONCURRENCY) {
+    response.setHeader('Retry-After', '30');
+    response.status(429).json({
+      message: 'O limite de importacoes simultaneas foi atingido. Aguarde uma importacao terminar e tente novamente.',
+    });
+    return;
+  }
+
+  const importId = crypto.randomUUID();
+  activeVideoImports.add(importId);
+  try {
+    const video = await importVideoFromUrl(sourceUrl);
+    response.status(201).json({ video: publicVideoSummary(video) });
   } catch (error) {
     const statusCode = error?.code === 'YTDLP_MISSING' ? 503 : 422;
     response.status(statusCode).json({ message: error?.message || 'Nao foi possivel importar o video pelo link.' });
+  } finally {
+    activeVideoImports.delete(importId);
   }
 });
 
-app.post('/api/videos', upload.single('video'), (request, response) => {
+app.post('/api/videos', upload.single('video'), async (request, response) => {
   if (!request.file) {
     response.status(400).json({ message: 'Nenhum video foi enviado.' });
     return;
   }
 
-  const durationSeconds = Number(request.body.durationSeconds || 0);
-  if (!Number.isFinite(durationSeconds) || durationSeconds < MIN_CLIP_DURATION_SECONDS) {
-    fs.unlinkSync(request.file.path);
-    response.status(422).json({ message: 'O video precisa ter pelo menos 1 minuto de duracao.' });
+  let durationSeconds;
+  try {
+    durationSeconds = await probeVideoDuration(request.file.path);
+  } catch (error) {
+    if (fs.existsSync(request.file.path)) {
+      fs.unlinkSync(request.file.path);
+    }
+    const statusCode = error?.code === 'FFPROBE_MISSING' ? 503 : 422;
+    response.status(statusCode).json({ message: error?.message || 'Nao foi possivel validar o video enviado.' });
+    return;
+  }
+
+  if (durationSeconds < MIN_CLIP_DURATION_SECONDS) {
+    if (fs.existsSync(request.file.path)) {
+      fs.unlinkSync(request.file.path);
+    }
+    response.status(422).json({ message: `O video precisa ter pelo menos ${MIN_CLIP_DURATION_SECONDS} segundos de duracao.` });
     return;
   }
 
@@ -3944,10 +4751,10 @@ app.post('/api/videos', upload.single('video'), (request, response) => {
   videos.push(video);
   writeManifest(videos);
 
-  response.status(201).json({ video });
+  response.status(201).json({ video: publicVideoSummary(video) });
 });
 
-app.post('/api/videos/:id/analyze', async (request, response) => {
+app.post('/api/videos/:id/analyze', (request, response) => {
   const { video } = getVideoById(request.params.id);
 
   if (!video) {
@@ -3969,42 +4776,53 @@ app.post('/api/videos/:id/analyze', async (request, response) => {
     return;
   }
 
-  const analysisPath = path.join(VIDEOS_DIR, `${video.fileName}.analysis.json`);
+  const existingJob = readAnalysisJobs().find((job) =>
+    job.videoId === video.id &&
+    ['queued', 'running'].includes(job.status) &&
+    activeAnalysisJobs.has(job.id),
+  );
+  if (existingJob) {
+    response.status(202).json({
+      video: publicVideoSummary(video),
+      job: publicAnalysisJob(existingJob),
+    });
+    return;
+  }
 
-  updateVideo(video.id, (currentVideo) => ({
+  if (video.aiStatus === 'done' && video.analysis) {
+    response.json({ video: publicVideoDetail(video), job: null });
+    return;
+  }
+
+  const job = createAnalysisJob(video);
+  const updatedVideo = updateVideo(video.id, (currentVideo) => ({
     ...currentVideo,
     aiStatus: 'processing',
+    analysisJobId: job.id,
     analysisError: null,
   }));
+  const jobs = readAnalysisJobs().filter((currentJob) => currentJob.videoId !== video.id || !['queued', 'running'].includes(currentJob.status));
+  writeAnalysisJobs([...jobs, job]);
+  void processAnalysisJob(job);
 
-  try {
-    const analysis = await runPythonJson(
-      'process_video.py',
-      ['--video', videoPath, '--output', analysisPath],
-      20 * 60 * 1000,
-    );
-    const enrichedAnalysis = {
-      ...analysis,
-      brollSuggestions: buildBrollSuggestions({ analysis }),
-    };
-    const updatedVideo = updateVideo(video.id, (currentVideo) => ({
-      ...currentVideo,
-      aiStatus: 'done',
-      analysis: enrichedAnalysis,
-      analysisPath: path.basename(analysisPath),
-      analyzedAt: new Date().toISOString(),
-    }));
+  response.status(202).json({
+    video: publicVideoSummary(updatedVideo),
+    job: publicAnalysisJob(job),
+  });
+});
 
-    response.json({ video: updatedVideo });
-  } catch (error) {
-    const updatedVideo = updateVideo(video.id, (currentVideo) => ({
-      ...currentVideo,
-      aiStatus: 'error',
-      analysisError: error.message,
-    }));
-
-    response.status(500).json({ message: 'Falha ao processar IA.', video: updatedVideo });
+app.get('/api/analysis-jobs/:id', (request, response) => {
+  const job = getAnalysisJob(request.params.id);
+  if (!job) {
+    response.status(404).json({ message: 'Job de analise nao encontrado.' });
+    return;
   }
+
+  const { video } = getVideoById(job.videoId);
+  response.json({
+    job: publicAnalysisJob(job),
+    video: job.status === 'succeeded' ? publicVideoDetail(video) : publicVideoSummary(video),
+  });
 });
 
 app.delete('/api/videos/:id', (request, response) => {
@@ -4029,10 +4847,13 @@ app.delete('/api/videos/:id', (request, response) => {
     fs.unlinkSync(resolvedVideoPath);
   }
 
-  const analysisPath = path.join(VIDEOS_DIR, `${video.fileName}.analysis.json`);
+  const analysisPath = getVideoAnalysisPath(video);
+  const legacyAnalysisPath = path.join(VIDEOS_DIR, `${video.fileName}.analysis.json`);
 
-  if (fs.existsSync(analysisPath)) {
-    fs.unlinkSync(analysisPath);
+  for (const candidatePath of [analysisPath, legacyAnalysisPath]) {
+    if (fs.existsSync(candidatePath)) {
+      fs.unlinkSync(candidatePath);
+    }
   }
 
   writeManifest(videos.filter((item) => item.id !== video.id));
@@ -4040,6 +4861,11 @@ app.delete('/api/videos/:id', (request, response) => {
 });
 
 app.use((error, _request, response, _next) => {
+  if (error.code === 'LIMIT_FILE_SIZE') {
+    response.status(413).json({ message: 'O video excede o limite de 1 GB.' });
+    return;
+  }
+
   if (error.message === 'INVALID_VIDEO_TYPE') {
     response.status(400).json({ message: 'Envie apenas arquivos de video.' });
     return;
@@ -4062,6 +4888,7 @@ function startServer(port = PORT) {
   return new Promise((resolve, reject) => {
     const server = app.listen(port, '127.0.0.1', () => {
       recoverExportJobs();
+      recoverAnalysisJobs();
       scheduleExportJobs();
       console.log(`ClipCut API running at http://127.0.0.1:${server.address().port}`);
       console.log(`Videos directory: ${VIDEOS_DIR}`);

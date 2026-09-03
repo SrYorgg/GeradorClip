@@ -197,7 +197,7 @@ function buildLocalBestMomentRecommendations(video, options = {}) {
   const duration = Number(video.durationSeconds || 0);
   const transcriptSegments = getTranscriptSegments(video);
   const faceSamples = getFaceSamples(video);
-  if (duration < MIN_CLIP_DURATION_SECONDS || (transcriptSegments.length === 0 && faceSamples.length === 0)) {
+  if (duration < MIN_CLIP_DURATION_SECONDS) {
     return [];
   }
 
@@ -205,11 +205,12 @@ function buildLocalBestMomentRecommendations(video, options = {}) {
     options.targetDurationSeconds,
     MIN_CLIP_DURATION_SECONDS,
     Math.max(MIN_CLIP_DURATION_SECONDS, Math.floor(duration)),
-    MIN_CLIP_DURATION_SECONDS,
+    Math.min(45, Math.floor(duration)),
   );
-  const maxClipCount = getMaxClipCount(duration);
+  const availableClipCount = Math.max(1, getMaxClipCount(duration));
+  const maxClipCount = clampNumber(options.targetClipCount, 1, Math.min(12, availableClipCount), Math.min(5, availableClipCount));
   const maxStart = Math.max(0, duration - windowDuration);
-  const step = maxStart === 0 ? 1 : Math.max(10, Math.min(30, Math.round(windowDuration / 4)));
+  const step = maxStart === 0 ? 1 : Math.max(4, Math.min(30, Math.round(windowDuration / 4)));
   const starts = [];
   for (let start = 0; start <= maxStart; start += step) {
     starts.push(start);

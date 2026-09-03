@@ -21,6 +21,7 @@ import {
   createProject,
   exportClipsToGallery,
   generateVideoClips,
+  getUploadedVideo,
   GeneratedClip,
   listUploadedVideos,
   UploadedVideo,
@@ -45,7 +46,7 @@ export function IndexPage() {
   const [selectedClipIds, setSelectedClipIds] = useState<string[]>([]);
   const [cutMode, setCutMode] = useState<'duration' | 'count' | 'recommended' | 'best-moments'>('count');
   const [focusPrompt, setFocusPrompt] = useState('');
-  const [targetClipDurationSeconds, setTargetClipDurationSeconds] = useState(60);
+  const [targetClipDurationSeconds, setTargetClipDurationSeconds] = useState(45);
   const [targetClipCount, setTargetClipCount] = useState(5);
   const [subtitleMode, setSubtitleMode] = useState<'none' | 'automatic' | 'manual'>('automatic');
   const [manualSubtitleText, setManualSubtitleText] = useState('');
@@ -78,6 +79,29 @@ export function IndexPage() {
       .catch(() => setMessage('Nao foi possivel carregar os videos da pagina Arquivos.'))
       .finally(() => setIsLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!selectedVideoId) {
+      return;
+    }
+
+    let isCurrent = true;
+    getUploadedVideo(selectedVideoId)
+      .then((loadedVideo) => {
+        if (isCurrent) {
+          replaceVideo(loadedVideo);
+        }
+      })
+      .catch(() => {
+        if (isCurrent) {
+          setMessage('Nao foi possivel carregar os detalhes do video selecionado.');
+        }
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [selectedVideoId]);
 
   const selectedVideo = useMemo(
     () => videos.find((video) => video.id === selectedVideoId) || null,
@@ -140,7 +164,11 @@ export function IndexPage() {
     try {
       setIsAnalyzing(true);
       setMessage('Analisando fala, movimento e rostos para encontrar os melhores momentos...');
-      const analyzedVideo = await analyzeUploadedVideo(selectedVideo.id);
+      const analyzedVideo = await analyzeUploadedVideo(selectedVideo.id, (job) => {
+        setMessage(job.status === 'queued'
+          ? 'Analise de IA entrou na fila...'
+          : `Analisando fala, movimento e rostos... ${job.progress}%`);
+      });
       replaceVideo(analyzedVideo);
       setMessage('Analise concluida. O rastreamento facial sera aplicado automaticamente ao reenquadrar os cortes.');
       return analyzedVideo;
@@ -159,7 +187,7 @@ export function IndexPage() {
     }
 
     if (selectedVideo.durationSeconds < MIN_CLIP_DURATION_SECONDS) {
-      setMessage('O video precisa ter pelo menos 1 minuto para gerar cortes.');
+      setMessage(`O video precisa ter pelo menos ${MIN_CLIP_DURATION_SECONDS} segundos para gerar cortes.`);
       return;
     }
 
@@ -200,7 +228,7 @@ export function IndexPage() {
       setMessage('Abrindo o editor de layout...');
       const project = await createProject({
         videoId: selectedVideo.id,
-        layoutOnly: true,
+        clipIds: [_clip.id],
       });
       const composition = project.compositions[0];
       if (!composition) {
@@ -350,7 +378,7 @@ export function IndexPage() {
             <input aria-label="Buscar projeto" placeholder="Buscar clips, projetos ou templates" />
           </div>
           <div className="topbar-actions">
-            <button className="icon-button" aria-label="Notificacoes">
+                <button className="icon-button" type="button" aria-label="Notificacoes">
               <Bell size={18} />
             </button>
           </div>
@@ -438,7 +466,7 @@ export function IndexPage() {
               ) : (
                 <div className="setting-control setting-control-recommendation">
                   <span>Recomendacao do YouTube</span>
-                  <strong>{selectedVideo?.audienceRecommendations?.length || 0} janela(s) de 1 minuto</strong>
+                  <strong>{selectedVideo?.audienceRecommendations?.length || 0} janela(s) recomendada(s)</strong>
                 </div>
               )}
             </div>
@@ -446,7 +474,7 @@ export function IndexPage() {
             <p className="generator-limit-note">
               {cutMode === 'recommended'
                 ? 'As janelas foram escolhidas a partir dos momentos mais assistidos disponíveis no YouTube.'
-                : `Cada corte terá no mínimo 1 minuto. Este vídeo permite até ${Math.floor(Number(selectedVideo?.durationSeconds || 0) / MIN_CLIP_DURATION_SECONDS)} corte(s) sem ultrapassar o tempo disponível.`}
+                : `Cada corte terá no mínimo ${MIN_CLIP_DURATION_SECONDS} segundos e pode passar de 1 minuto quando o melhor momento exigir. Este vídeo permite até ${Math.floor(Number(selectedVideo?.durationSeconds || 0) / MIN_CLIP_DURATION_SECONDS)} corte(s) sem ultrapassar o tempo disponível.`}
             </p>
 
             {cutMode === 'best-moments' && (
@@ -714,7 +742,7 @@ export function IndexPage() {
                   <p className="eyebrow">Fila</p>
                   <h2>Cortes gerados</h2>
                 </div>
-                <button className="icon-button" aria-label="Mais opcoes">
+                <button className="icon-button" type="button" aria-label="Mais opcoes">
                   <MoreHorizontal size={18} />
                 </button>
               </div>
@@ -746,6 +774,7 @@ export function IndexPage() {
               </div>
               <button
                 className="secondary-action dark"
+                type="button"
                 disabled={!selectedVideo || selectedClipIds.length === 0 || isExporting}
                 onClick={exportPackage}
               >

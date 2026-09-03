@@ -28,7 +28,7 @@ import {
   deleteProjectImage,
   generateProjectClips,
   getProject,
-  listUploadedVideos,
+  getUploadedVideo,
   saveComposition,
   uploadProjectImage,
 } from '../../lib/videoApi';
@@ -299,8 +299,9 @@ export function CompositionEditorPage() {
 
     let isCurrent = true;
     setIsLoading(true);
-    Promise.all([getProject(projectId), listUploadedVideos()])
-      .then(([loadedProject, videos]) => {
+    getProject(projectId)
+      .then((loadedProject) => Promise.all([loadedProject, getUploadedVideo(loadedProject.sourceVideoId)]))
+      .then(([loadedProject, sourceVideo]) => {
         if (!isCurrent) {
           return;
         }
@@ -310,7 +311,7 @@ export function CompositionEditorPage() {
           loadedProject.compositions[0];
 
         setProject(loadedProject);
-        setSourceVideo(videos.find((video) => video.id === loadedProject.sourceVideoId) || null);
+        setSourceVideo(sourceVideo);
         setCaptionPositionPreview(null);
         captionDragRef.current = null;
         if (selectedComposition) {
@@ -1325,7 +1326,7 @@ export function CompositionEditorPage() {
                     <input type="number" min={(selectedItem.sourceInMs + MIN_CLIP_DURATION_MS) / 1000} step="0.1" value={(selectedItem.sourceOutMs / 1000).toFixed(1)} onChange={(event) => updateTrim('end', event.target.value)} />
                   </label>
                 </div>
-                <p className="inspector-muted">Cada segmento precisa ter pelo menos 1 minuto · {formatTime(getItemDuration(selectedItem))}</p>
+                <p className="inspector-muted">Cada segmento precisa ter pelo menos {MIN_CLIP_DURATION_MS / 1000} segundos · {formatTime(getItemDuration(selectedItem))}</p>
               </div>}
 
               <div className="inspector-section">

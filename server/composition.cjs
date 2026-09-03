@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { MIN_CLIP_DURATION_MS, hasMinimumDuration } = require('./video-rules.cjs');
+const { MIN_CLIP_DURATION_MS, MIN_CLIP_DURATION_SECONDS, hasMinimumDuration } = require('./video-rules.cjs');
 
 const CANVAS = { width: 1080, height: 1920, fps: 30 };
 
@@ -248,7 +248,254 @@ function normalizeComposition(composition) {
     : normalizedComposition;
 }
 
-function reviewComposition(composition) {
+const SEMANTIC_CONTEXT_OPENERS = new Set([
+  'e', 'mas', 'entao', 'tambem', 'isso', 'isto', 'aquilo', 'ele', 'ela', 'eles', 'elas',
+  'aqui', 'ali', 'la', 'por isso', 'nesse caso', 'nessa situacao', 'dessa forma', 'como eu disse',
+]);
+const SEMANTIC_INCOMPLETE_ENDINGS = new Set([
+  'a', 'as', 'ao', 'aos', 'com', 'da', 'das', 'de', 'do', 'dos', 'e', 'em', 'essa', 'esse',
+  'esta', 'este', 'eu', 'mas', 'na', 'nas', 'nem', 'no', 'nos', 'ou', 'para', 'pelo', 'pela',
+  'por', 'que', 'se', 'sem', 'tambem', 'um', 'uma', 'quando', 'porque',
+]);
+const SEMANTIC_FILLER_WORDS = new Set(['ah', 'aham', 'basicamente', 'tipo', 'hum', 'ne', 'uh']);
+
+function normalizeSemanticText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s'-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeSemanticSegments(context = {}) {
+  const sourceSegments = context.transcriptSegments || context.video?.analysis?.tools?.whisperx?.segments;
+  if (!Array.isArray(sourceSegments)) {
+    return [];
+  }
+
+  return sourceSegments
+    .map((segment) => ({
+      start: Number(segment?.start),
+      end: Number(segment?.end),
+      text: String(segment?.text || '').replace(/\s+/g, ' ').trim(),
+      words: Array.isArray(segment?.words)
+        ? segment.words
+            .map((word) => ({
+              start: Number(word?.start),
+              end: Number(word?.end),
+              text: String(word?.word || word?.text || '').trim(),
+            }))
+            .filter((word) => Number.isFinite(word.start) && Number.isFinite(word.end) && word.end > word.start && word.text)
+        : [],
+    }))
+    .filter((segment) => Number.isFinite(segment.start) && Number.isFinite(segment.end) && segment.end > segment.start && segment.text)
+    .sort((first, second) => first.start - second.start);
+}
+
+function semanticWordsFromText(text) {
+  return normalizeSemanticText(text).split(/\s+/).filter(Boolean);
+}
+
+function hasSentenceEnding(text) {
+  return /[.!?…]["'»)]?$/.test(String(text || '').trim());
+}
+
+function semanticLastWord(text) {
+  return semanticWordsFromText(text).at(-1) || '';
+}
+
+function hasContextDependentOpening(text) {
+  const normalizedText = normalizeSemanticText(text);
+  return normalizedText.length > 0 && Array.from(SEMANTIC_CONTEXT_OPENERS).some((opening) =>
+    normalizedText === opening || normalizedText.startsWith(`${opening} `),
+  );
+}
+
+function hasLikelyIncompleteEnding(text) {
+  const normalizedText = normalizeSemanticText(text);
+  return normalizedText.length > 0 && !hasSentenceEnding(text) && SEMANTIC_INCOMPLETE_ENDINGS.has(semanticLastWord(normalizedText));
+}
+
+function semanticScore(value) {
+  return Math.round(Math.min(100, Math.max(0, Number(value) || 0)));
+}
+
+function reviewSemanticCut(composition, context = {}) {
+  const videoTrack = composition?.tracks?.find((track) => track.kind === 'video');
+  const videoItem = videoTrack?.items?.[0];
+  const clipStart = Math.max(0, Number(videoItem?.sourceInMs || 0) / 1000);
+  const clipEnd = Math.max(clipStart + 0.1, Number(videoItem?.sourceOutMs || 0) / 1000);
+  const durationSeconds = Math.max(clipEnd - clipStart, 0.1);
+  const transcriptSegments = normalizeSemanticSegments(context);
+  const baseEvidence = {
+    transcriptAvailable: transcriptSegments.length > 0,
+    transcriptWordCount: transcriptSegments.reduce((total, segment) => total + semanticWordsFromText(segment.text).length, 0),
+    clipStartSeconds: Number(clipStart.toFixed(2)),
+    clipEndSeconds: Number(clipEnd.toFixed(2)),
+  };
+
+  if (transcriptSegments.length === 0) {
+    return {
+      status: 'insufficient-data',
+      score: 0,
+      method: 'transcript-boundaries-v1',
+      summary: 'A transcricao ainda nao esta disponivel para confirmar se o corte preserva o sentido da fala.',
+      dimensions: [],
+      issues: ['A analise semantica precisa de uma transcricao valida para confirmar contexto, frase e encerramento.'],
+      warnings: [],
+      evidence: baseEvidence,
+    };
+  }
+
+  const activeSegments = transcriptSegments.filter((segment) => segment.end > clipStart && segment.start < clipEnd);
+  if (activeSegments.length === 0) {
+    return {
+      status: 'insufficient-data',
+      score: 0,
+      method: 'transcript-boundaries-v1',
+      summary: 'Nenhuma fala foi encontrada dentro da janela selecionada.',
+      dimensions: [],
+      issues: ['O corte nao possui fala detectada dentro do intervalo para validar o sentido.'],
+      warnings: [],
+      evidence: { ...baseEvidence, transcriptAvailable: true },
+    };
+  }
+
+  const firstSegment = activeSegments[0];
+  const lastSegment = activeSegments.at(-1);
+  const firstWord = firstSegment.words.find((word) => word.end > clipStart) || null;
+  const lastWord = [...lastSegment.words].reverse().find((word) => word.start < clipEnd) || null;
+  const startsMidWord = Boolean(firstWord && firstWord.start < clipStart - 0.08 && firstWord.end > clipStart);
+  const endsMidWord = Boolean(lastWord && lastWord.start < clipEnd && lastWord.end > clipEnd + 0.08);
+  const startsMidSegment = !firstWord && firstSegment.start + 0.65 < clipStart && firstSegment.end > clipStart + 0.1;
+  const endsMidSegment = !lastWord && lastSegment.end > clipEnd + 0.65 && lastSegment.start < clipEnd - 0.1;
+  const previousSegment = transcriptSegments.filter((segment) => segment.end <= clipStart).at(-1);
+  const nextSegment = transcriptSegments.find((segment) => segment.start >= clipEnd);
+  const firstText = firstSegment.text;
+  const lastText = lastSegment.text;
+  const contextDependentOpening = hasContextDependentOpening(firstText);
+  const incompleteEnding = hasLikelyIncompleteEnding(lastText);
+  const leadingSilence = Math.max(0, firstSegment.start - clipStart);
+  const trailingSilence = Math.max(0, clipEnd - lastSegment.end);
+  const internalGaps = activeSegments.slice(1).map((segment, index) => Math.max(0, segment.start - activeSegments[index].end));
+  const longestInternalGap = Math.max(0, ...internalGaps);
+  const speechSeconds = activeSegments.reduce((total, segment) =>
+    total + Math.max(0, Math.min(segment.end, clipEnd) - Math.max(segment.start, clipStart)),
+  0);
+  const speechCoverage = Math.min(1, speechSeconds / durationSeconds);
+  const transcriptWordCount = activeSegments.reduce((total, segment) => total + semanticWordsFromText(segment.text).length, 0);
+  const wordsPerSecond = transcriptWordCount / durationSeconds;
+  const normalizedTranscript = normalizeSemanticText(activeSegments.map((segment) => segment.text).join(' '));
+  const fillerCount = semanticWordsFromText(normalizedTranscript).filter((word) => SEMANTIC_FILLER_WORDS.has(word)).length;
+  const fillerRate = fillerCount / Math.max(transcriptWordCount, 1);
+  const issues = [];
+  const warnings = [];
+
+  if (startsMidWord || startsMidSegment) {
+    issues.push('O corte comeca no meio de uma fala; a frase pode ter sido interrompida na abertura.');
+  }
+  if (contextDependentOpening || (previousSegment && !hasSentenceEnding(previousSegment.text) && firstSegment.start < clipStart + 0.8)) {
+    issues.push('A abertura usa uma referencia que pode depender do contexto da fala anterior.');
+  }
+  if (endsMidWord || endsMidSegment) {
+    issues.push('O corte termina no meio de uma fala; a frase pode ter sido cortada antes de concluir.');
+  }
+  if (incompleteEnding) {
+    issues.push('O final termina em uma palavra de ligacao; a ideia pode continuar fora do corte.');
+  }
+  if (speechCoverage < 0.18) {
+    issues.push('Ha pouca fala dentro do intervalo para confirmar uma ideia completa.');
+  }
+  if (leadingSilence > 2.5) {
+    warnings.push(`O corte comeca com ${leadingSilence.toFixed(1)}s de silencio antes da fala.`);
+  }
+  if (trailingSilence > 2.5) {
+    warnings.push(`O corte termina com ${trailingSilence.toFixed(1)}s de silencio depois da fala.`);
+  }
+  if (longestInternalGap > 2.5) {
+    warnings.push(`Existe uma pausa interna de ${longestInternalGap.toFixed(1)}s que pode quebrar o ritmo.`);
+  }
+  if (!hasSentenceEnding(lastText) && !incompleteEnding) {
+    warnings.push('O final nao possui pontuacao conclusiva na transcricao; confira se a ideia terminou naturalmente.');
+  }
+  if (fillerRate > 0.12) {
+    warnings.push('O trecho possui concentracao elevada de palavras de preenchimento.');
+  }
+  if (wordsPerSecond < 0.7 || wordsPerSecond > 5.5) {
+    warnings.push(`O ritmo estimado e de ${wordsPerSecond.toFixed(1)} palavras por segundo.`);
+  }
+
+  const openingScore = semanticScore(100 - (startsMidWord ? 48 : startsMidSegment ? 28 : 0) - (contextDependentOpening ? 28 : 0) - Math.min(22, leadingSilence * 7));
+  const contextScore = semanticScore(100 - (contextDependentOpening ? 42 : 0) - (previousSegment && !hasSentenceEnding(previousSegment.text) ? 18 : 0) - (speechCoverage < 0.35 ? 20 : 0));
+  const completenessScore = semanticScore(100 - (startsMidWord ? 35 : startsMidSegment ? 18 : 0) - (endsMidWord ? 45 : endsMidSegment ? 25 : 0) - (incompleteEnding ? 35 : 0));
+  const endingScore = semanticScore(100 - (endsMidWord ? 50 : endsMidSegment ? 28 : 0) - (incompleteEnding ? 35 : 0) - (trailingSilence > 2.5 ? 15 : 0));
+  const flowScore = semanticScore(speechCoverage * 100 - Math.min(25, longestInternalGap * 6) - Math.min(20, fillerRate * 100));
+  const dimensions = [
+    {
+      id: 'opening',
+      label: 'Abertura',
+      score: openingScore,
+      evidence: startsMidWord || startsMidSegment ? 'A janela inicia durante uma fala.' : contextDependentOpening ? 'A abertura pode depender de uma referencia anterior.' : leadingSilence > 2.5 ? 'A fala demora a entrar no corte.' : 'A janela inicia em um limite de fala plausivel.',
+    },
+    {
+      id: 'context',
+      label: 'Contexto',
+      score: contextScore,
+      evidence: contextDependentOpening || (previousSegment && !hasSentenceEnding(previousSegment.text)) ? 'Foi detectada dependencia possivel da fala anterior.' : 'Nao foi detectada dependencia forte de contexto anterior.',
+    },
+    {
+      id: 'completeness',
+      label: 'Frase completa',
+      score: completenessScore,
+      evidence: endsMidWord || endsMidSegment || incompleteEnding ? 'O final pode interromper a construcao da frase.' : 'A fala possui limites suficientes para preservar a frase.',
+    },
+    {
+      id: 'ending',
+      label: 'Encerramento',
+      score: endingScore,
+      evidence: hasSentenceEnding(lastText) ? 'A transcricao indica encerramento de frase.' : trailingSilence > 2.5 ? 'Ha silencio depois da fala antes do fim da janela.' : 'O encerramento precisa de confirmacao pelo contexto da fala.',
+    },
+    {
+      id: 'flow',
+      label: 'Ritmo da fala',
+      score: flowScore,
+      evidence: `${transcriptWordCount} palavras em ${durationSeconds.toFixed(1)}s, com ${Math.round(speechCoverage * 100)}% de cobertura falada.`,
+    },
+  ];
+  const weights = { opening: 0.22, context: 0.2, completeness: 0.25, ending: 0.23, flow: 0.1 };
+  const score = semanticScore(dimensions.reduce((total, dimension) => total + dimension.score * (weights[dimension.id] || 0), 0));
+  const status = issues.length > 0 ? 'needs-adjustment' : 'ready';
+
+  return {
+    status,
+    score,
+    method: 'transcript-boundaries-v1',
+    summary: status === 'ready'
+      ? 'A janela preserva limites de fala plausiveis e nao apresentou quebra semantica forte.'
+      : 'A janela apresentou sinais de quebra de frase, contexto ou encerramento que precisam ser revisados.',
+    dimensions,
+    issues,
+    warnings,
+    evidence: {
+      ...baseEvidence,
+      transcriptAvailable: true,
+      transcriptWordCount,
+      speechCoverage: Number(speechCoverage.toFixed(3)),
+      leadingSilence: Number(leadingSilence.toFixed(2)),
+      trailingSilence: Number(trailingSilence.toFixed(2)),
+      longestInternalGap: Number(longestInternalGap.toFixed(2)),
+      wordsPerSecond: Number(wordsPerSecond.toFixed(2)),
+      fillerRate: Number(fillerRate.toFixed(3)),
+      nextSegmentAvailable: Boolean(nextSegment),
+      startsMidWord,
+      endsMidWord,
+    },
+  };
+}
+
+function reviewComposition(composition, context = {}) {
   const issues = [];
   const videoTrack = composition?.tracks?.find((track) => track.kind === 'video');
   const items = videoTrack?.items || [];
@@ -260,7 +507,7 @@ function reviewComposition(composition) {
 
   for (const item of items) {
     if (item.mediaType !== 'image' && !hasMinimumDuration(Number(item.sourceInMs) / 1000, Number(item.sourceOutMs) / 1000)) {
-      issues.push(`${item.id}: cada corte precisa ter pelo menos 1 minuto.`);
+      issues.push(`${item.id}: o corte precisa ter pelo menos ${MIN_CLIP_DURATION_SECONDS} segundos.`);
     }
 
     const transform = item.transform || {};
@@ -308,9 +555,15 @@ function reviewComposition(composition) {
     issues.push('A legenda manual está selecionada, mas ainda não possui texto.');
   }
 
+  const semantic = reviewSemanticCut(composition, context);
+  if (semantic.status === 'needs-adjustment') {
+    issues.push(...semantic.issues.map((issue) => `Semantica: ${issue}`));
+  }
+
   return {
     status: issues.length > 0 ? 'needs-adjustment' : 'ready',
     issues,
+    semantic,
     checkedAt: new Date().toISOString(),
   };
 }

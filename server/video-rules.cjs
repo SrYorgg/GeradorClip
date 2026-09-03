@@ -1,4 +1,5 @@
-const MIN_CLIP_DURATION_SECONDS = 60;
+// Limite tecnico minimo; os cortes podem ser menores ou maiores que 1 minuto.
+const MIN_CLIP_DURATION_SECONDS = 3;
 const MIN_CLIP_DURATION_MS = MIN_CLIP_DURATION_SECONDS * 1000;
 
 function getMaxClipCount(durationSeconds) {

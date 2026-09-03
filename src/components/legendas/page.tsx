@@ -256,7 +256,7 @@ export function CaptionsPage() {
             </div>
 
             {message && <p className="workflow-message">{message}</p>}
-            <div className="workflow-actions">
+            <div className="workflow-actions workflow-centered-actions captions-actions" aria-busy={isSaving}>
               <button className="workflow-secondary" type="button" disabled={isSaving} onClick={() => void saveSettings(false)}>
                 <Save size={16} />
                 Salvar legenda

@@ -185,7 +185,7 @@ function buildSpeechEditPlan(video, clip, options = {}) {
     return createNoOpEditPlan(
       duration,
       editedDurationSeconds < MIN_CLIP_DURATION_SECONDS
-        ? 'A limpeza deixaria o corte com menos de 1 minuto; o áudio original foi preservado.'
+        ? `A limpeza deixaria o corte com menos de ${MIN_CLIP_DURATION_SECONDS} segundos; o áudio original foi preservado.`
         : 'Nenhum silêncio ou vício de linguagem elegível foi encontrado.',
     );
   }

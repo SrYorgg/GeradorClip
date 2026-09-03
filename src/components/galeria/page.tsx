@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Folder, LoaderCircle, MonitorPlay, PackageOpen, RefreshCw, Subtitles, Volume2, XCircle } from 'lucide-react';
+import { Check, Download, Folder, LoaderCircle, MonitorPlay, PackageOpen, RefreshCw, Subtitles, Trash2, Volume2, XCircle } from 'lucide-react';
 import { subtitleFonts } from '../../lib/subtitleFonts';
 import {
   cancelExportJob,
+  deleteExportJob,
+  deleteGalleryClip,
+  deleteGalleryPackage,
+  downloadGalleryPackage,
   ExportJob,
   GalleryPackage,
   listExportJobs,
@@ -82,6 +86,8 @@ export function GalleryPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [jobActionId, setJobActionId] = useState('');
+  const [packageActionId, setPackageActionId] = useState('');
+  const [selectedClipIds, setSelectedClipIds] = useState<Record<string, string[]>>({});
 
   useEffect(() => {
     let isCurrent = true;
@@ -101,6 +107,12 @@ export function GalleryPage() {
         }
         setPackages(loadedPackages);
         setJobs(loadedJobs);
+        setSelectedClipIds((currentSelection) => Object.fromEntries(
+          loadedPackages.map((galleryPackage) => [
+            galleryPackage.id,
+            (currentSelection[galleryPackage.id] || []).filter((clipId) => galleryPackage.clips.some((clip) => clip.id === clipId)),
+          ]),
+        ));
         setError('');
       } catch {
         if (isCurrent) {
@@ -116,7 +128,7 @@ export function GalleryPage() {
     void loadGalleryState(true);
     const refreshTimer = window.setInterval(() => {
       void loadGalleryState();
-    }, 1500);
+    }, 3000);
 
     return () => {
       isCurrent = false;
@@ -148,6 +160,102 @@ export function GalleryPage() {
     }
   }
 
+  async function handleRemoveJob(job: ExportJob) {
+    if (!window.confirm('Remover o registro deste processo? Os arquivos temporarios tambem serao limpos.')) {
+      return;
+    }
+
+    try {
+      setJobActionId(job.id);
+      await deleteExportJob(job.id);
+      setJobs((currentJobs) => currentJobs.filter((currentJob) => currentJob.id !== job.id));
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : 'Nao foi possivel remover o processo.');
+    } finally {
+      setJobActionId('');
+    }
+  }
+
+  function toggleClipSelection(packageId: string, clipId: string) {
+    setSelectedClipIds((currentSelection) => {
+      const currentIds = currentSelection[packageId] || [];
+      return {
+        ...currentSelection,
+        [packageId]: currentIds.includes(clipId)
+          ? currentIds.filter((currentId) => currentId !== clipId)
+          : [...currentIds, clipId],
+      };
+    });
+  }
+
+  async function handleDownload(galleryPackage: GalleryPackage, clipIds: string[] = []) {
+    if (clipIds.length === 0 && galleryPackage.clips.length === 0) {
+      return;
+    }
+
+    try {
+      setPackageActionId(`${galleryPackage.id}:download`);
+      const archive = await downloadGalleryPackage(galleryPackage.id, clipIds);
+      const url = URL.createObjectURL(archive);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${formatPackageTitle(galleryPackage.title)}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : 'Nao foi possivel baixar os cortes.');
+    } finally {
+      setPackageActionId('');
+    }
+  }
+
+  async function handleDeletePackage(galleryPackage: GalleryPackage) {
+    if (!window.confirm(`Excluir o pacote "${formatPackageTitle(galleryPackage.title)}" e seus arquivos?`)) {
+      return;
+    }
+
+    try {
+      setPackageActionId(`${galleryPackage.id}:delete`);
+      await deleteGalleryPackage(galleryPackage.id);
+      setPackages((currentPackages) => currentPackages.filter((currentPackage) => currentPackage.id !== galleryPackage.id));
+      setSelectedClipIds((currentSelection) => {
+        const nextSelection = { ...currentSelection };
+        delete nextSelection[galleryPackage.id];
+        return nextSelection;
+      });
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : 'Nao foi possivel remover o pacote.');
+    } finally {
+      setPackageActionId('');
+    }
+  }
+
+  async function handleDeleteClip(galleryPackage: GalleryPackage, clipId: string, clipTitle: string) {
+    if (!window.confirm(`Excluir o corte "${clipTitle}" da galeria?`)) {
+      return;
+    }
+
+    try {
+      setPackageActionId(`${galleryPackage.id}:${clipId}`);
+      await deleteGalleryClip(galleryPackage.id, clipId);
+      setPackages((currentPackages) => currentPackages
+        .map((currentPackage) => currentPackage.id === galleryPackage.id
+          ? { ...currentPackage, clips: currentPackage.clips.filter((clip) => clip.id !== clipId) }
+          : currentPackage)
+        .filter((currentPackage) => currentPackage.clips.length > 0));
+      setSelectedClipIds((currentSelection) => ({
+        ...currentSelection,
+        [galleryPackage.id]: (currentSelection[galleryPackage.id] || []).filter((id) => id !== clipId),
+      }));
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : 'Nao foi possivel remover o corte.');
+    } finally {
+      setPackageActionId('');
+    }
+  }
+
   const activeJobs = jobs.filter((job) => job.status === 'queued' || job.status === 'running');
 
   return (
@@ -165,9 +273,9 @@ export function GalleryPage() {
         <StepIndicator currentStep={6} />
 
         {isLoading && <div className="route-panel">Carregando galeria...</div>}
-        {error && <div className="route-panel">{error}</div>}
+        {error && <div className="route-panel" role="alert">{error}</div>}
 
-        {!isLoading && !error && (
+        {!isLoading && (
           <section className="workflow-card export-jobs-panel">
             <div className="workflow-card-header">
               <div>
@@ -186,7 +294,8 @@ export function GalleryPage() {
                   const succeededCount = job.clipResults.filter((clip) => clip.status === 'succeeded').length;
                   const failedClips = job.clipResults.filter((clip) => clip.status === 'failed' || clip.status === 'cancelled');
                   const canRetry = job.status === 'failed' || job.status === 'cancelled';
-                  const isBusy = jobActionId === job.id;
+                      const isBusy = jobActionId === job.id || jobActionId.startsWith(`${job.id}:`);
+                      const canRemove = job.status === 'failed' || job.status === 'cancelled';
 
                   return (
                     <article className={`export-job-card ${job.status}`} key={job.id}>
@@ -252,6 +361,17 @@ export function GalleryPage() {
                             Repetir pendentes
                           </button>
                         )}
+                        {canRemove && (
+                          <button
+                            className="workflow-secondary"
+                            disabled={Boolean(jobActionId)}
+                            onClick={() => void handleRemoveJob(job)}
+                            type="button"
+                          >
+                            <Trash2 size={15} />
+                            Remover registro
+                          </button>
+                        )}
                       </div>
                     </article>
                   );
@@ -261,7 +381,7 @@ export function GalleryPage() {
           </section>
         )}
 
-        {!isLoading && !error && packages.length === 0 && (
+        {!isLoading && packages.length === 0 && (
           <div className="route-panel gallery-empty">
             <Folder size={34} />
             <h2>Nenhum pacote exportado</h2>
@@ -269,7 +389,7 @@ export function GalleryPage() {
           </div>
         )}
 
-        {!isLoading && !error && packages.length > 0 && (
+        {!isLoading && packages.length > 0 && (
           <section className="gallery-library" aria-labelledby="gallery-library-title">
             <div className="gallery-section-heading">
               <div>
@@ -293,9 +413,20 @@ export function GalleryPage() {
                       Exportado em {formatDate(galleryPackage.createdAt)}
                     </time>
                   </div>
-                  <div className="gallery-package-count" aria-label={`${galleryPackage.clips.length} clipes exportados`}>
-                    <strong>{galleryPackage.clips.length}</strong>
-                    <span>clipes</span>
+                  <div className="gallery-package-header-actions">
+                    <div className="gallery-package-count" aria-label={`${galleryPackage.clips.length} clipes exportados`}>
+                      <strong>{galleryPackage.clips.length}</strong>
+                      <span>clipes</span>
+                    </div>
+                    <button
+                      className="gallery-danger-button"
+                      type="button"
+                      disabled={packageActionId.startsWith(`${galleryPackage.id}:`)}
+                      onClick={() => void handleDeletePackage(galleryPackage)}
+                    >
+                      <Trash2 size={15} />
+                      Remover pacote
+                    </button>
                   </div>
                 </div>
 
@@ -337,13 +468,42 @@ export function GalleryPage() {
                     <span className="eyebrow">Arquivos finais</span>
                     <h3>Cortes exportados</h3>
                   </div>
-                  <span className="gallery-clip-count">{galleryPackage.clips.length} arquivos MP4</span>
+                  <div className="gallery-clip-heading-actions">
+                    <span className="gallery-clip-count">{galleryPackage.clips.length} arquivos MP4</span>
+                    <button
+                      className="workflow-secondary"
+                      type="button"
+                      disabled={packageActionId.startsWith(`${galleryPackage.id}:`)}
+                      onClick={() => void handleDownload(galleryPackage)}
+                    >
+                      <Download size={14} />
+                      Baixar todos
+                    </button>
+                    <button
+                      className="workflow-primary"
+                      type="button"
+                      disabled={Boolean(packageActionId) || !(selectedClipIds[galleryPackage.id]?.length)}
+                      onClick={() => void handleDownload(galleryPackage, selectedClipIds[galleryPackage.id] || [])}
+                    >
+                      <Check size={14} />
+                      Baixar selecionados ({selectedClipIds[galleryPackage.id]?.length || 0})
+                    </button>
+                  </div>
                 </div>
 
                 <div className="gallery-clip-list">
                   {galleryPackage.clips.map((clip) => (
-                    <article className="gallery-clip" key={clip.id}>
+                    <article className={`gallery-clip ${selectedClipIds[galleryPackage.id]?.includes(clip.id) ? 'is-selected' : ''}`} key={clip.id}>
                       <div className="gallery-clip-media">
+                        <label className="gallery-clip-check">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(selectedClipIds[galleryPackage.id]?.includes(clip.id))}
+                            onChange={() => toggleClipSelection(galleryPackage.id, clip.id)}
+                            aria-label={`Selecionar ${clip.title} para baixar`}
+                          />
+                          <span>Selecionar</span>
+                        </label>
                         {clip.url ? (
                           <video src={clip.url} controls preload="metadata" />
                         ) : (
@@ -356,6 +516,15 @@ export function GalleryPage() {
                       <div className="gallery-clip-copy">
                         <div className="gallery-clip-title-row">
                           <h3>{clip.title}</h3>
+                          <button
+                            className="gallery-clip-delete"
+                            type="button"
+                            aria-label={`Remover ${clip.title}`}
+                            disabled={packageActionId.startsWith(`${galleryPackage.id}:`)}
+                            onClick={() => void handleDeleteClip(galleryPackage, clip.id, clip.title)}
+                          >
+                            <Trash2 size={13} />
+                          </button>
                           <span className="gallery-clip-status">{clip.status}</span>
                         </div>
                         <p className="gallery-clip-range">{clip.range}</p>

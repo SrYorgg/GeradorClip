@@ -17,11 +17,18 @@ export type UploadedVideo = {
   clips?: GeneratedClip[];
   clipsGeneratedAt?: string;
   aiStatus?: 'pending' | 'processing' | 'done' | 'error';
+  analysisJobId?: string | null;
   analysis?: VideoAnalysis | null;
   analysisError?: string | null;
   sourceType?: 'file' | 'url';
   sourceUrl?: string;
   sourceProvider?: 'youtube' | 'external';
+  sourceRange?: {
+    startSeconds: number;
+    endSeconds: number;
+    durationSeconds: number;
+    hasRange: boolean;
+  };
   audienceRecommendations?: AudienceRecommendation[];
   audienceInsight?: AudienceInsight;
 };
@@ -208,6 +215,23 @@ export type GalleryPackage = {
   clips: GeneratedClip[];
 };
 
+export type AnalysisJobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+
+export type AnalysisJob = {
+  version: number;
+  id: string;
+  videoId: string;
+  sourceName: string;
+  status: AnalysisJobStatus;
+  phase: 'queued' | 'processing' | 'completed' | 'failed';
+  progress: number;
+  error?: string | null;
+  createdAt: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  updatedAt: string;
+};
+
 export type EditorialAnalysis = {
   model: string;
   confidence: string;
@@ -325,6 +349,14 @@ export async function listUploadedVideos() {
   return data.videos;
 }
 
+export async function getUploadedVideo(id: string) {
+  const response = await fetch(`/api/videos/${id}`);
+  await assertApiResponse(response);
+
+  const data = (await response.json()) as { video: UploadedVideo };
+  return data.video;
+}
+
 export async function listGeneratedClips() {
   const response = await fetch('/api/clips');
   await assertApiResponse(response);
@@ -380,6 +412,13 @@ export async function getExportJob(id: string) {
   return data.job;
 }
 
+export async function deleteExportJob(id: string) {
+  const response = await fetch(`/api/export-jobs/${id}`, {
+    method: 'DELETE',
+  });
+  await assertApiResponse(response);
+}
+
 export async function cancelExportJob(id: string) {
   const response = await fetch(`/api/export-jobs/${id}/cancel`, {
     method: 'POST',
@@ -402,6 +441,27 @@ export async function retryExportJob(id: string, clipId?: string) {
 
   const data = (await response.json()) as { job: ExportJob };
   return data.job;
+}
+
+export async function deleteGalleryPackage(id: string) {
+  const response = await fetch(`/api/gallery/${id}`, {
+    method: 'DELETE',
+  });
+  await assertApiResponse(response);
+}
+
+export async function deleteGalleryClip(packageId: string, clipId: string) {
+  const response = await fetch(`/api/gallery/${packageId}/clips/${clipId}`, {
+    method: 'DELETE',
+  });
+  await assertApiResponse(response);
+}
+
+export async function downloadGalleryPackage(id: string, clipIds: string[] = []) {
+  const query = clipIds.length > 0 ? `?clipIds=${encodeURIComponent(clipIds.join(','))}` : '';
+  const response = await fetch(`/api/gallery/${id}/download${query}`);
+  await assertApiResponse(response);
+  return response.blob();
 }
 
 export async function exportClipsToGallery(payload: {
@@ -460,15 +520,45 @@ export async function deleteUploadedVideo(id: string) {
   await assertApiResponse(response);
 }
 
-export async function analyzeUploadedVideo(id: string) {
+export async function analyzeUploadedVideo(
+  id: string,
+  onProgress?: (job: AnalysisJob) => void,
+) {
   const response = await fetch(`/api/videos/${id}/analyze`, {
     method: 'POST',
   });
 
   await assertApiResponse(response);
 
-  const data = (await response.json()) as { video: UploadedVideo };
-  return data.video;
+  const data = (await response.json()) as { video: UploadedVideo; job?: AnalysisJob | null };
+  if (!data.job) {
+    return data.video;
+  }
+
+  let job = data.job;
+  onProgress?.(job);
+  while (job.status === 'queued' || job.status === 'running') {
+    await new Promise((resolve) => window.setTimeout(resolve, 1200));
+    const jobResponse = await fetch(`/api/analysis-jobs/${job.id}`);
+    await assertApiResponse(jobResponse);
+    const jobData = (await jobResponse.json()) as { job: AnalysisJob; video: UploadedVideo | null };
+    job = jobData.job;
+    onProgress?.(job);
+
+    if (job.status === 'succeeded' && jobData.video) {
+      return jobData.video;
+    }
+
+    if (job.status === 'failed') {
+      throw new Error(job.error || 'Falha ao processar IA.');
+    }
+  }
+
+  if (job.status === 'failed') {
+    throw new Error(job.error || 'Falha ao processar IA.');
+  }
+
+  throw new Error('O job de analise terminou sem retornar o video atualizado.');
 }
 
 export async function getAiStatus() {
@@ -568,16 +658,27 @@ export async function createProject(payload: {
   return data.project;
 }
 
-export async function generateProjectClips(projectId: string) {
+export type ProjectClipGenerationOptions = {
+  mode?: 'duration' | 'count' | 'recommended' | 'best-moments';
+  targetDurationSeconds?: number;
+  targetClipCount?: number;
+  focusPrompt?: string;
+};
+
+export async function generateProjectClips(
+  projectId: string,
+  options: ProjectClipGenerationOptions = {},
+) {
   const response = await fetch(`/api/projects/${projectId}/generate-clips`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      mode: 'duration',
-      targetDurationSeconds: 60,
-      targetClipCount: 1,
+      mode: 'best-moments',
+      targetDurationSeconds: 45,
+      targetClipCount: 5,
+      ...options,
     }),
   });
 

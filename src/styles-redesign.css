@@ -1741,6 +1741,193 @@ button:disabled {
   }
 }
 
+/* Workflow actions remain centered inside their panel, including the narrow layout. */
+.workflow-centered-actions {
+  justify-content: center !important;
+  text-align: center;
+}
+
+.workflow-centered-actions > * {
+  flex: 0 0 auto;
+}
+
+.workflow-caption-save-row {
+  justify-content: center;
+  text-align: center;
+}
+
+/* Gallery cards keep enough width for a readable preview instead of squeezing
+   several players into narrow columns. */
+.gallery-grid {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.files-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)) !important;
+}
+
+.gallery-package-header-actions {
+  display: grid;
+  justify-items: end;
+  gap: 14px;
+  min-width: 160px;
+}
+
+.gallery-danger-button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border: 1px solid rgb(239 112 133 / 42%);
+  border-radius: 999px;
+  background: rgb(72 24 42 / 72%);
+  color: #ffb7c4;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.gallery-danger-button:hover:not(:disabled) {
+  border-color: #ff8fa5;
+  background: rgb(105 31 55 / 82%);
+}
+
+.gallery-danger-button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.gallery-clip-heading-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.gallery-clip-heading-actions .workflow-primary,
+.gallery-clip-heading-actions .workflow-secondary {
+  min-height: 38px;
+  padding: 8px 13px;
+  font-size: 11px;
+}
+
+.gallery-clip-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+}
+
+.gallery-clip-media {
+  aspect-ratio: 9 / 16;
+}
+
+.gallery-clip.is-selected {
+  border-color: #9f8cff !important;
+  box-shadow: 0 0 0 2px rgb(159 140 255 / 20%), 0 18px 30px rgb(0 0 0 / 22%);
+}
+
+.gallery-clip-check {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  left: 12px;
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 9px;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 999px;
+  background: rgb(7 10 16 / 82%);
+  color: #eef2fa;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 750;
+  backdrop-filter: blur(8px);
+}
+
+.gallery-clip-check input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: #9f8cff;
+}
+
+.workflow-review-readonly {
+  display: grid;
+  gap: 14px;
+  padding: 18px 2px 2px;
+}
+
+.workflow-review-format-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.workflow-review-format-grid > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--cc-border);
+  border-radius: 12px;
+  background: var(--cc-elevated);
+}
+
+.workflow-review-format-grid span {
+  color: var(--cc-muted);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.workflow-review-format-grid strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--cc-text);
+  font-size: 13px;
+}
+
+.workflow-review-routing {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 12px 14px;
+  border: 1px solid rgb(255 188 94 / 30%);
+  border-radius: 12px;
+  background: rgb(92 58 20 / 28%);
+  color: #f5d399;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+@media (max-width: 680px) {
+  .gallery-package-header-actions {
+    width: 100%;
+    justify-items: stretch;
+  }
+
+  .gallery-package-header-actions .gallery-package-count {
+    justify-content: flex-start;
+  }
+
+  .gallery-clip-heading-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .gallery-clip-heading-actions > * {
+    flex: 1 1 100%;
+  }
+
+  .workflow-centered-actions > * {
+    width: min(100%, 360px);
+  }
+}
+
 /* Spacing and reading rhythm */
 
 body {
@@ -3180,6 +3367,30 @@ small[class*='subtitle'],
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.gallery-clip-delete {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(239 112 133 / 30%);
+  border-radius: 8px;
+  background: transparent;
+  color: #ff9eae;
+  cursor: pointer;
+}
+
+.gallery-clip-delete:hover:not(:disabled) {
+  background: rgb(91 28 49 / 72%);
+  border-color: rgb(255 143 165 / 75%);
+}
+
+.gallery-clip-delete:disabled {
+  cursor: wait;
+  opacity: 0.5;
 }
 
 .gallery-clip-range {
@@ -5291,6 +5502,19 @@ input:focus-visible,
 textarea:focus-visible {
   outline: 2px solid var(--purple-highlight) !important;
   outline-offset: 3px !important;
+}
+
+/* Final responsive overrides for workflow and gallery controls. */
+.workflow-centered-actions {
+  justify-content: center !important;
+}
+
+.files-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)) !important;
+}
+
+.gallery-clip-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)) !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

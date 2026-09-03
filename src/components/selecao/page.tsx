@@ -25,14 +25,17 @@ export function SelectionPage() {
   const [isProjectLoading, setIsProjectLoading] = useState(false);
   const [isStoring, setIsStoring] = useState(false);
   const [error, setError] = useState('');
+  const selectableCompositions = project?.compositions.filter(
+    (composition) => composition.status === 'approved' && composition.review?.status === 'ready',
+  ) || [];
   const selectedCompositions = project?.compositions.filter((composition) => selectedIds.has(composition.id)) || [];
   const canStore = selectedCompositions.length > 0 && selectedCompositions.every(
     (composition) => composition.status === 'approved' && composition.review?.status === 'ready',
   );
   const allSelected = Boolean(
     project &&
-    project.compositions.length > 0 &&
-    project.compositions.every((composition) => selectedIds.has(composition.id)),
+    selectableCompositions.length > 0 &&
+    selectableCompositions.every((composition) => selectedIds.has(composition.id)),
   );
 
   useEffect(() => {
@@ -68,7 +71,9 @@ export function SelectionPage() {
           return;
         }
         setProject(loadedProject);
-        setSelectedIds(new Set(loadedProject.compositions.filter((composition) => composition.selectedForExport !== false).map((composition) => composition.id)));
+        setSelectedIds(new Set(loadedProject.compositions
+          .filter((composition) => composition.status === 'approved' && composition.review?.status === 'ready' && composition.selectedForExport !== false)
+          .map((composition) => composition.id)));
       })
       .catch(() => {
         if (isCurrent) {
@@ -110,7 +115,7 @@ export function SelectionPage() {
 
     setSelectedIds(allSelected
       ? new Set()
-      : new Set(project.compositions.map((composition) => composition.id)));
+      : new Set(selectableCompositions.map((composition) => composition.id)));
   }
 
   async function storeSelectedCuts() {
@@ -231,7 +236,12 @@ export function SelectionPage() {
                       : 'Revisado; aguardando aprovação.';
                 return (
                   <label className="workflow-selection-card" key={composition.id}>
-                    <input type="checkbox" checked={selectedIds.has(composition.id)} onChange={() => toggleSelection(composition.id)} />
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(composition.id)}
+                      disabled={composition.status !== 'approved' || composition.review?.status !== 'ready'}
+                      onChange={() => toggleSelection(composition.id)}
+                    />
                     <span>
                       <h3>{composition.title}</h3>
                       <p>{statusMessage}</p>

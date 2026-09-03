@@ -52,6 +52,12 @@ const workflowItems = [
 
 const studioItems = [
   {
+    label: 'Produção inteligente',
+    to: '/producao',
+    icon: Sparkles,
+    end: true,
+  },
+  {
     label: 'Feed em massa',
     to: '/instagram',
     icon: LayoutTemplate,

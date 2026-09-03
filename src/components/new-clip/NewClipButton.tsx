@@ -3,7 +3,7 @@ import { FileVideo2, FolderOpen, Link2, Plus, Trash2, Upload, UploadCloud, X } f
 import { useNavigate } from 'react-router-dom';
 import { importVideoFromUrl, uploadVideo } from '../../lib/videoApi';
 import { formatDuration, formatFileSize } from '../../lib/formatters';
-import { MIN_CLIP_DURATION_SECONDS } from '../../lib/videoRules';
+import { MAX_IMPORT_URL_LENGTH, MAX_VIDEO_FILE_SIZE_BYTES, MIN_CLIP_DURATION_SECONDS } from '../../lib/videoRules';
 import './NewClipButton.css';
 
 type SelectedVideo = {
@@ -35,6 +35,7 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
     setError('');
     setIsSending(false);
     setIsImporting(false);
+    setSelectedVideo(null);
     setSourceUrl('');
   }
 
@@ -51,6 +52,11 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
       return;
     }
 
+    if (file.size > MAX_VIDEO_FILE_SIZE_BYTES) {
+      setError('O video excede o limite de 1 GB.');
+      return;
+    }
+
     const video = document.createElement('video');
     const objectUrl = URL.createObjectURL(file);
 
@@ -61,7 +67,7 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
       URL.revokeObjectURL(objectUrl);
 
       if (!Number.isFinite(video.duration) || video.duration < MIN_CLIP_DURATION_SECONDS) {
-        setError('O video precisa ter pelo menos 1 minuto.');
+        setError(`O video precisa ter pelo menos ${MIN_CLIP_DURATION_SECONDS} segundos.`);
         return;
       }
 
@@ -132,6 +138,11 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
       return;
     }
 
+    if (normalizedUrl.length > MAX_IMPORT_URL_LENGTH) {
+      setError(`O link precisa ter no maximo ${MAX_IMPORT_URL_LENGTH} caracteres.`);
+      return;
+    }
+
     try {
       const parsedUrl = new URL(normalizedUrl);
       if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
@@ -165,7 +176,7 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
 
       {isOpen && (
         <div className="new-clip-backdrop" role="presentation">
-          <section className="new-clip-modal" aria-labelledby="new-clip-title" role="dialog">
+          <section className="new-clip-modal" aria-labelledby="new-clip-title" aria-modal="true" role="dialog">
             <div className="new-clip-header">
               <div>
                 <p className="eyebrow">Novo clip</p>
@@ -190,7 +201,7 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
                 <UploadCloud size={32} />
               </div>
               <h3>Arraste o vídeo aqui</h3>
-              <p>Use um arquivo de vídeo com pelo menos 1 minuto, sem limite de duração.</p>
+              <p>Use um arquivo de vídeo com pelo menos {MIN_CLIP_DURATION_SECONDS} segundos, sem limite de duração.</p>
             </div>
 
             <div className="new-clip-actions">
@@ -221,14 +232,14 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
                   {isImporting ? 'Baixando...' : 'Importar link'}
                 </button>
               </div>
-              <small>Em vídeos do YouTube, o ClipCut tenta encontrar os momentos mais assistidos e sugerir janelas de 1 minuto.</small>
+              <small>Em vídeos do YouTube, o ClipCut tenta encontrar os momentos mais assistidos. Links com <code>?t=1m30s&amp;end=2m</code> baixam somente essa minutagem.</small>
             </div>
 
             <div className="new-clip-tutorial">
               <h3>Como começar</h3>
               <ol>
                 <li>Arraste o arquivo para a área acima ou selecione pelo gerenciador.</li>
-                <li>Vídeos longos podem ser analisados e divididos em cortes de pelo menos 1 minuto.</li>
+                <li>Vídeos longos podem ser analisados e divididos em cortes com duração flexível.</li>
                 <li>Depois do envio, o arquivo deve ser salvo em `public/videos`.</li>
               </ol>
             </div>

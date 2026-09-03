@@ -138,6 +138,35 @@ export type CaptionSettings = {
 export type CompositionReview = {
   status: 'pending' | 'ready' | 'needs-adjustment';
   issues: string[];
+  semantic?: {
+    status: 'ready' | 'needs-adjustment' | 'insufficient-data';
+    score: number;
+    method: string;
+    summary: string;
+    dimensions: Array<{
+      id: string;
+      label: string;
+      score: number;
+      evidence: string;
+    }>;
+    issues: string[];
+    warnings: string[];
+    evidence: {
+      transcriptAvailable: boolean;
+      transcriptWordCount: number;
+      clipStartSeconds: number;
+      clipEndSeconds: number;
+      speechCoverage?: number;
+      leadingSilence?: number;
+      trailingSilence?: number;
+      longestInternalGap?: number;
+      wordsPerSecond?: number;
+      fillerRate?: number;
+      nextSegmentAvailable?: boolean;
+      startsMidWord?: boolean;
+      endsMidWord?: boolean;
+    };
+  };
   checkedAt?: string;
 };
 

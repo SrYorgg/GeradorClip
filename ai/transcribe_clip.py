@@ -75,28 +75,31 @@ def extract_audio(video_path, audio_path, start, duration):
     return {"ok": True}
 
 
-def transcribe_with_faster_whisper(audio_path):
-    try:
-        from faster_whisper import WhisperModel
+def load_faster_whisper_model():
+    from faster_whisper import WhisperModel
 
-        model_name = os.environ.get("FASTER_WHISPER_MODEL") or os.environ.get("WHISPERX_MODEL", "small")
-        device = os.environ.get("WHISPERX_DEVICE", "cpu")
-        compute_type = os.environ.get("WHISPERX_COMPUTE_TYPE", "int8")
-        vad_filter = os.environ.get("WHISPER_VAD_FILTER", "true").lower() == "true"
-        beam_size = int(os.environ.get("WHISPER_BEAM_SIZE", "5"))
-        model = WhisperModel(model_name, device=device, compute_type=compute_type)
-        transcribe_options = {
-            "vad_filter": vad_filter,
-            "word_timestamps": True,
-            "beam_size": max(1, beam_size),
-            "temperature": 0.0,
-            "condition_on_previous_text": False,
-            "compression_ratio_threshold": 2.4,
-            "log_prob_threshold": -1.0,
-            "no_speech_threshold": 0.6,
-        }
-        if vad_filter:
-            transcribe_options["vad_parameters"] = {"min_silence_duration_ms": 500}
+    model_name = os.environ.get("FASTER_WHISPER_MODEL") or os.environ.get("WHISPERX_MODEL", "small")
+    device = os.environ.get("WHISPERX_DEVICE", "cpu")
+    compute_type = os.environ.get("WHISPERX_COMPUTE_TYPE", "int8")
+    beam_size = int(os.environ.get("WHISPER_BEAM_SIZE", "5"))
+    model = WhisperModel(model_name, device=device, compute_type=compute_type)
+    transcribe_options = {
+        "vad_filter": os.environ.get("WHISPER_VAD_FILTER", "true").lower() == "true",
+        "word_timestamps": True,
+        "beam_size": max(1, beam_size),
+        "temperature": 0.0,
+        "condition_on_previous_text": False,
+        "compression_ratio_threshold": 2.4,
+        "log_prob_threshold": -1.0,
+        "no_speech_threshold": 0.6,
+    }
+    if transcribe_options["vad_filter"]:
+        transcribe_options["vad_parameters"] = {"min_silence_duration_ms": 500}
+    return model, model_name, transcribe_options
+
+
+def transcribe_with_faster_whisper(audio_path, model, model_name, transcribe_options, offset_seconds=0):
+    try:
         segments, info = model.transcribe(str(audio_path), **transcribe_options)
 
         normalized_segments = []
@@ -116,15 +119,19 @@ def transcribe_with_faster_whisper(audio_path):
 
             words = [
                 {
-                    "start": word.start,
-                    "end": word.end,
+                    "start": word.start + offset_seconds,
+                    "end": word.end + offset_seconds,
                     "word": word.word.strip(),
                     "probability": getattr(word, "probability", None),
                 }
                 for word in (segment.words or [])
                 if word.word and word.word.strip() and word.end > word.start
             ]
-            normalized_segment = {"start": segment.start, "end": segment.end, "text": segment.text.strip()}
+            normalized_segment = {
+                "start": segment.start + offset_seconds,
+                "end": segment.end + offset_seconds,
+                "text": segment.text.strip(),
+            }
             if words:
                 normalized_segment["words"] = words
             normalized_segments.append(normalized_segment)
@@ -149,20 +156,68 @@ def main():
     parser.add_argument("--video", required=True)
     parser.add_argument("--start", type=float, required=True)
     parser.add_argument("--duration", type=float, required=True)
+    parser.add_argument("--chunk-duration", type=float, default=300)
     args = parser.parse_args()
 
     video_path = Path(args.video).resolve()
 
+    if args.duration <= 0:
+        print(json.dumps({"ok": False, "message": "A duracao precisa ser positiva."}, ensure_ascii=False))
+        return
+
+    try:
+        model, model_name, transcribe_options = load_faster_whisper_model()
+    except Exception as error:
+        print(json.dumps({"ok": False, "engine": "faster-whisper", "message": str(error)}, ensure_ascii=False))
+        return
+
+    chunk_duration = max(30.0, float(args.chunk_duration or 300))
+    all_segments = []
+    detected_language = None
+    first_error = None
+
     with tempfile.TemporaryDirectory() as temp_dir:
-        audio_path = Path(temp_dir) / "clip.wav"
-        audio_result = extract_audio(video_path, audio_path, args.start, args.duration)
+        chunk_index = 0
+        offset = 0.0
+        while offset < args.duration:
+            current_duration = min(chunk_duration, args.duration - offset)
+            audio_path = Path(temp_dir) / f"chunk-{chunk_index}.wav"
+            audio_result = extract_audio(video_path, audio_path, args.start + offset, current_duration)
+            if not audio_result.get("ok"):
+                first_error = audio_result.get("message") or "Falha ao extrair o audio."
+                break
 
-        if not audio_result.get("ok"):
-            print(json.dumps({"ok": False, **audio_result}, ensure_ascii=False))
-            return
+            result = transcribe_with_faster_whisper(
+                audio_path,
+                model,
+                model_name,
+                transcribe_options,
+                offset_seconds=args.start + offset,
+            )
+            if not result.get("ok"):
+                first_error = result.get("message") or "Falha ao transcrever o audio."
+                break
 
-        result = transcribe_with_faster_whisper(audio_path)
-        print(json.dumps(result, ensure_ascii=False))
+            detected_language = detected_language or result.get("language")
+            all_segments.extend(result.get("segments") or [])
+            offset += current_duration
+            chunk_index += 1
+
+    if first_error:
+        print(json.dumps({"ok": False, "engine": "faster-whisper", "message": first_error}, ensure_ascii=False))
+        return
+
+    print(json.dumps({
+        "ok": True,
+        "engine": "faster-whisper",
+        "transcriptionVersion": 3,
+        "model": model_name,
+        "language": detected_language,
+        "text": " ".join(segment["text"] for segment in all_segments).strip(),
+        "segments": all_segments,
+        "chunkDuration": chunk_duration,
+        "chunks": chunk_index,
+    }, ensure_ascii=False))
 
 
 if __name__ == "__main__":

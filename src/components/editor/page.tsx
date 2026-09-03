@@ -186,7 +186,11 @@ export function EditorPage() {
     try {
       setIsAnalyzing(true);
       setMessage('');
-      const updatedVideo = await analyzeUploadedVideo(selectedVideo.id);
+      const updatedVideo = await analyzeUploadedVideo(selectedVideo.id, (job) => {
+        setMessage(job.status === 'queued'
+          ? 'Analise de IA entrou na fila...'
+          : `Analise de IA em andamento... ${job.progress}%`);
+      });
       setVideos((currentVideos) =>
         currentVideos.map((video) => (video.id === updatedVideo.id ? updatedVideo : video)),
       );
