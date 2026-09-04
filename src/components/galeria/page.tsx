@@ -32,10 +32,10 @@ function formatPackageTitle(value: string) {
 
 function formatSubtitleMode(value: string) {
   const labels: Record<string, string> = {
-    automatic: 'Legenda automatica',
+    automatic: 'Legenda automática',
     manual: 'Legenda manual',
     none: 'Sem legenda',
-    'Legenda automatica': 'Legenda automatica',
+    'Legenda automatica': 'Legenda automática',
     'Sem legenda': 'Sem legenda',
   };
 
@@ -60,7 +60,7 @@ function formatJobStatus(value: ExportJob['status']) {
   const labels: Record<ExportJob['status'], string> = {
     queued: 'Na fila',
     running: 'Processando',
-    succeeded: 'Concluido',
+    succeeded: 'Concluído',
     failed: 'Falhou',
     cancelled: 'Cancelado',
   };
@@ -70,11 +70,11 @@ function formatJobStatus(value: ExportJob['status']) {
 
 function formatJobPhase(value: ExportJob['phase']) {
   const labels: Record<ExportJob['phase'], string> = {
-    preflight: 'Preparacao',
+    preflight: 'Preparação',
     captions: 'Legendas',
-    render: 'Renderizacao',
-    validate: 'Validacao',
-    cleanup: 'Finalizacao',
+    render: 'Renderização',
+    validate: 'Validação',
+    cleanup: 'Finalização',
   };
 
   return labels[value];
@@ -116,7 +116,7 @@ export function GalleryPage() {
         setError('');
       } catch {
         if (isCurrent) {
-          setError('Nao foi possivel carregar a fila e os pacotes da galeria.');
+          setError('Não foi possível carregar a fila e os pacotes da galeria.');
         }
       } finally {
         if (isCurrent && showLoading) {
@@ -142,7 +142,7 @@ export function GalleryPage() {
       const updatedJob = await cancelExportJob(jobId);
       setJobs((currentJobs) => currentJobs.map((job) => job.id === updatedJob.id ? updatedJob : job));
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : 'Nao foi possivel cancelar o job.');
+      setError(actionError instanceof Error ? actionError.message : 'Não foi possível cancelar a exportação.');
     } finally {
       setJobActionId('');
     }
@@ -154,7 +154,7 @@ export function GalleryPage() {
       const updatedJob = await retryExportJob(jobId, clipId);
       setJobs((currentJobs) => currentJobs.map((job) => job.id === updatedJob.id ? updatedJob : job));
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : 'Nao foi possivel repetir o job.');
+      setError(actionError instanceof Error ? actionError.message : 'Não foi possível repetir a exportação.');
     } finally {
       setJobActionId('');
     }
@@ -170,7 +170,7 @@ export function GalleryPage() {
       await deleteExportJob(job.id);
       setJobs((currentJobs) => currentJobs.filter((currentJob) => currentJob.id !== job.id));
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : 'Nao foi possivel remover o processo.');
+      setError(actionError instanceof Error ? actionError.message : 'Não foi possível remover o processo.');
     } finally {
       setJobActionId('');
     }
@@ -205,7 +205,7 @@ export function GalleryPage() {
       link.remove();
       URL.revokeObjectURL(url);
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : 'Nao foi possivel baixar os cortes.');
+      setError(actionError instanceof Error ? actionError.message : 'Não foi possível baixar os cortes.');
     } finally {
       setPackageActionId('');
     }
@@ -226,7 +226,7 @@ export function GalleryPage() {
         return nextSelection;
       });
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : 'Nao foi possivel remover o pacote.');
+      setError(actionError instanceof Error ? actionError.message : 'Não foi possível remover o pacote.');
     } finally {
       setPackageActionId('');
     }
@@ -250,7 +250,7 @@ export function GalleryPage() {
         [galleryPackage.id]: (currentSelection[galleryPackage.id] || []).filter((id) => id !== clipId),
       }));
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : 'Nao foi possivel remover o corte.');
+      setError(actionError instanceof Error ? actionError.message : 'Não foi possível remover o corte.');
     } finally {
       setPackageActionId('');
     }
@@ -280,13 +280,13 @@ export function GalleryPage() {
             <div className="workflow-card-header">
               <div>
                 <span className="eyebrow">Processamento</span>
-                <h2>Fila de exportacao</h2>
-                <p>Os jobs continuam no servidor mesmo se voce fechar esta tela.</p>
+                <h2>Fila de exportação</h2>
+                <p>As exportações continuam no servidor mesmo se você fechar esta tela.</p>
               </div>
               <strong className="export-jobs-count">{activeJobs.length} ativos</strong>
             </div>
 
-            {jobs.length === 0 && <p className="workflow-field-help">Nenhuma exportacao foi iniciada.</p>}
+            {jobs.length === 0 && <p className="workflow-field-help">Nenhuma exportação foi iniciada.</p>}
 
             {jobs.length > 0 && (
               <div className="export-job-list">
@@ -322,7 +322,7 @@ export function GalleryPage() {
 
                       {failedClips.length > 0 && (
                         <div className="export-job-failures">
-                          <span>Cortes que precisam de retry:</span>
+                          <span>Cortes que precisam ser tentados novamente:</span>
                           {failedClips.map((clip) => (
                             <button
                               className="export-job-retry-link"
@@ -414,9 +414,9 @@ export function GalleryPage() {
                     </time>
                   </div>
                   <div className="gallery-package-header-actions">
-                    <div className="gallery-package-count" aria-label={`${galleryPackage.clips.length} clipes exportados`}>
+                    <div className="gallery-package-count" aria-label={`${galleryPackage.clips.length} cortes exportados`}>
                       <strong>{galleryPackage.clips.length}</strong>
-                      <span>clipes</span>
+                      <span>cortes</span>
                     </div>
                     <button
                       className="gallery-danger-button"

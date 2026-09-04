@@ -5547,3 +5547,355 @@ textarea:focus-visible {
     transition: none;
   }
 }
+
+/* Keep the production selector inside the main panel instead of rendering a nested card. */
+.generator-panel > .video-selector {
+  gap: 18px !important;
+  padding: 0 !important;
+}
+
+/* Shared shape for editable controls; selection toggles keep their native geometry. */
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
+select,
+textarea,
+.searchbox,
+.source-input {
+  border-radius: 10px !important;
+}
+
+/* Search and source fields use the surrounding control as their single visual surface. */
+.searchbox input,
+.source-input input {
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* The search field is intentionally squared off, including its focused state. */
+.searchbox {
+  border-radius: 0 !important;
+}
+
+/* Clip selection stays compact: the control is the checkbox itself, not a tall button. */
+.clip-check input {
+  width: 16px !important;
+  height: 16px !important;
+  min-height: 16px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 4px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Native select menus inherit the dark ClipCut palette instead of white-on-white text. */
+select,
+select option,
+select optgroup {
+  color-scheme: dark;
+}
+
+select option,
+select optgroup {
+  background-color: var(--surface-elevated) !important;
+  color: var(--text-primary) !important;
+}
+
+select option:checked,
+select option:hover {
+  background-color: var(--purple-base) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Production flow: keep the creation path visible at a glance. */
+.production-section-heading {
+  display: grid;
+  gap: 5px;
+  margin: 24px 0 14px;
+}
+
+.production-section-heading .eyebrow {
+  margin: 0;
+}
+
+.production-section-heading h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 17px;
+  line-height: 1.3;
+}
+
+.production-section-heading > p:last-child {
+  max-width: 680px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.production-generation-heading {
+  margin-top: 26px;
+}
+
+.production-advanced-settings {
+  margin-top: 22px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.production-advanced-settings > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 68px;
+  padding: 12px 2px;
+  color: var(--text-primary);
+  cursor: pointer;
+  list-style: none;
+}
+
+.production-advanced-settings > summary::-webkit-details-marker {
+  display: none;
+}
+
+.production-advanced-settings > summary::after {
+  content: '+';
+  display: grid;
+  flex: 0 0 26px;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border-button);
+  border-radius: 8px;
+  color: var(--purple-highlight);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.production-advanced-settings[open] > summary::after {
+  content: '−';
+}
+
+.production-advanced-settings > summary:focus-visible {
+  outline: none;
+  border-radius: 8px;
+  box-shadow: var(--focus-ring);
+}
+
+.production-settings-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.production-step-number {
+  display: grid;
+  flex: 0 0 28px;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-button);
+  border-radius: 8px;
+  background: var(--purple-glow-subtle);
+  color: var(--purple-highlight);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.production-settings-summary-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.production-settings-summary-copy strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.production-settings-summary-copy small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.production-advanced-content {
+  display: grid;
+  gap: 18px;
+  padding: 2px 0 4px;
+}
+
+.production-advanced-content .subtitle-settings,
+.production-advanced-content .smart-audio-settings {
+  margin-top: 0;
+}
+
+.clips-panel .panel-heading.compact > div > p:last-child {
+  margin: 5px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.package-panel .export-copy .eyebrow {
+  margin: 0 0 4px;
+}
+
+@media (max-width: 680px) {
+  .production-section-heading {
+    margin-top: 20px;
+  }
+
+  .production-advanced-settings > summary {
+    min-height: 62px;
+  }
+
+  .production-settings-summary-copy small {
+    white-space: normal;
+  }
+}
+
+/* Production controls: keep transient actions attached to their trigger. */
+.notification-menu,
+.clip-menu-wrap {
+  position: relative;
+}
+
+.notification-popover,
+.clip-actions-menu {
+  position: absolute;
+  z-index: 20;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--surface-elevated);
+  box-shadow: 0 18px 40px rgb(0 0 0 / 34%);
+}
+
+.notification-popover {
+  top: calc(100% + 10px);
+  right: 0;
+  display: grid;
+  width: min(280px, calc(100vw - 32px));
+  gap: 5px;
+  padding: 14px;
+}
+
+.notification-popover strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.notification-popover span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.clip-actions-menu {
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  min-width: 180px;
+  gap: 3px;
+  padding: 6px;
+}
+
+.clip-actions-menu button {
+  min-height: 34px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: left;
+}
+
+.clip-actions-menu button:hover:not(:disabled) {
+  background: var(--purple-glow-subtle);
+  color: var(--text-primary);
+}
+
+.clip-actions-menu button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+/* Keep helper copy visually separated from the cut controls. */
+.generator-limit-note {
+  margin: 16px 0 0 !important;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-secondary) !important;
+}
+
+.video-selector-status {
+  margin: 7px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.generator-message {
+  display: flex;
+  align-items: flex-start;
+  margin-top: 16px !important;
+  padding: 11px 13px;
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--purple-light);
+  border-radius: 8px;
+  background: var(--purple-glow-subtle);
+  color: var(--text-primary) !important;
+  font-weight: 600 !important;
+  line-height: 1.45;
+}
+
+.generator-message.success {
+  border-color: rgb(114 219 165 / 34%);
+  border-left-color: var(--success);
+  background: var(--success-soft);
+}
+
+.generator-message.error {
+  border-color: rgb(245 125 143 / 34%);
+  border-left-color: var(--danger);
+  background: rgb(245 125 143 / 9%);
+}
+
+.generator-action-help {
+  margin: 9px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.inline-retry {
+  width: fit-content;
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--purple-highlight);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.inline-retry:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.export-status-copy {
+  max-width: 300px;
+  line-height: 1.45;
+}

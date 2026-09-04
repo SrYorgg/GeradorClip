@@ -52,7 +52,7 @@ export function SelectionPage() {
           setSearchParams({ projectId: nextProjectId }, { replace: true });
         }
       })
-      .catch(() => setError('Nao foi possivel carregar os projetos.'))
+      .catch(() => setError('Não foi possível carregar os projetos.'))
       .finally(() => setIsLoading(false));
   }, [requestedProjectId, setSearchParams]);
 
@@ -77,7 +77,7 @@ export function SelectionPage() {
       })
       .catch(() => {
         if (isCurrent) {
-          setError('Nao foi possivel carregar o projeto selecionado.');
+          setError('Não foi possível carregar o projeto selecionado.');
         }
       })
       .finally(() => {
@@ -125,7 +125,7 @@ export function SelectionPage() {
     }
 
     if (!canStore) {
-      setError('Analise e aprove todos os cortes selecionados antes de armazenar.');
+      setError('Analise os cortes e aprove todos os selecionados antes de armazenar.');
       return;
     }
 
@@ -164,7 +164,7 @@ export function SelectionPage() {
     } catch (error) {
       setError(error instanceof Error
         ? error.message
-        : 'Nao foi possivel armazenar os cortes selecionados. Verifique se os cortes ja foram gerados no video.');
+        : 'Não foi possível armazenar os cortes selecionados. Verifique se os cortes já foram gerados no vídeo.');
     } finally {
       setIsStoring(false);
     }
@@ -203,7 +203,7 @@ export function SelectionPage() {
             <FolderCheck size={34} />
             <h2>Nenhum projeto para selecionar</h2>
             <p>Complete as etapas anteriores antes de armazenar os cortes.</p>
-            <Link className="workflow-primary" to="/arquivos">Ir para arquivos <ArrowRight size={16} /></Link>
+                <Link className="workflow-primary" to="/arquivos">Ir para Arquivos <ArrowRight size={16} /></Link>
           </div>
         )}
 

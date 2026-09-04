@@ -63,21 +63,45 @@ export function IndexPage() {
   const [voiceoverAsset, setVoiceoverAsset] = useState<VoiceoverAsset | null>(null);
   const [isUploadingVoiceover, setIsUploadingVoiceover] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isVideoDetailsLoading, setIsVideoDetailsLoading] = useState(false);
+  const [videosLoadError, setVideosLoadError] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [openingClipId, setOpeningClipId] = useState<string | null>(null);
-  const [message, setMessage] = useState('');
+  const [message, setMessageState] = useState('');
+  const [messageTone, setMessageTone] = useState<'info' | 'success' | 'error'>('info');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isClipMenuOpen, setIsClipMenuOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const navigate = useNavigate();
 
+  function setMessage(nextMessage: string, tone: 'info' | 'success' | 'error' = 'info') {
+    setMessageState(nextMessage);
+    setMessageTone(nextMessage ? tone : 'info');
+  }
+
+  async function loadVideos() {
+    setIsLoading(true);
+    setVideosLoadError(false);
+
+    try {
+      const loadedVideos = await listUploadedVideos();
+      setVideos(loadedVideos);
+      setSelectedVideoId((currentId) =>
+        loadedVideos.some((video) => video.id === currentId) ? currentId : loadedVideos[0]?.id || '',
+      );
+      setMessage('');
+    } catch {
+      setVideosLoadError(true);
+      setMessage('Não foi possível carregar os vídeos da página Arquivos.', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   useEffect(() => {
-    listUploadedVideos()
-      .then((loadedVideos) => {
-        setVideos(loadedVideos);
-        setSelectedVideoId(loadedVideos[0]?.id || '');
-      })
-      .catch(() => setMessage('Nao foi possivel carregar os videos da pagina Arquivos.'))
-      .finally(() => setIsLoading(false));
+    void loadVideos();
   }, []);
 
   useEffect(() => {
@@ -86,6 +110,7 @@ export function IndexPage() {
     }
 
     let isCurrent = true;
+    setIsVideoDetailsLoading(true);
     getUploadedVideo(selectedVideoId)
       .then((loadedVideo) => {
         if (isCurrent) {
@@ -94,12 +119,13 @@ export function IndexPage() {
       })
       .catch(() => {
         if (isCurrent) {
-          setMessage('Nao foi possivel carregar os detalhes do video selecionado.');
+          setMessage('Não foi possível carregar os detalhes do vídeo selecionado.', 'error');
         }
       });
 
     return () => {
       isCurrent = false;
+      setIsVideoDetailsLoading(false);
     };
   }, [selectedVideoId]);
 
@@ -110,6 +136,18 @@ export function IndexPage() {
 
   const clips = useMemo(() => selectedVideo?.clips || [], [selectedVideo]);
   const selectedClips = clips.filter((clip) => selectedClipIds.includes(clip.id));
+  const filteredClips = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) {
+      return clips;
+    }
+
+    return clips.filter((clip) =>
+      [clip.title, clip.range, clip.recommendationReason, clip.recommendationPrompt]
+        .filter(Boolean)
+        .some((value) => value?.toLowerCase().includes(query)),
+    );
+  }, [clips, searchQuery]);
 
   useEffect(() => {
     if (cutMode === 'recommended' && !(selectedVideo?.audienceRecommendations?.length || 0)) {
@@ -125,6 +163,22 @@ export function IndexPage() {
     });
   }, [selectedVideoId, clips]);
 
+  useEffect(() => {
+    if (!isClipMenuOpen && !isNotificationsOpen) {
+      return;
+    }
+
+    function closeTransientPanels(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsClipMenuOpen(false);
+        setIsNotificationsOpen(false);
+      }
+    }
+
+    window.addEventListener('keydown', closeTransientPanels);
+    return () => window.removeEventListener('keydown', closeTransientPanels);
+  }, [isClipMenuOpen, isNotificationsOpen]);
+
   const maxClipCount = Math.max(MIN_CLIP_COUNT, getMaxClipCount(Number(selectedVideo?.durationSeconds || 0)));
   const maxClipDurationSeconds = Math.max(
     MIN_CLIP_DURATION_SECONDS,
@@ -138,14 +192,18 @@ export function IndexPage() {
     maxClipCount,
     Math.max(MIN_CLIP_COUNT, Math.round(targetClipCount || 0)),
   );
+  const selectedVideoTooShort = Boolean(
+    selectedVideo && selectedVideo.durationSeconds < MIN_CLIP_DURATION_SECONDS,
+  );
+  const recommendedWindowCount = selectedVideo?.audienceRecommendations?.length || 0;
   const generateButtonLabel =
     cutMode === 'count'
-      ? `Criar ${safeTargetClipCount} rascunhos`
+      ? `Gerar ${safeTargetClipCount} cortes`
       : cutMode === 'recommended'
-        ? 'Criar momentos recomendados'
+        ? 'Gerar momentos recomendados'
         : cutMode === 'best-moments'
-          ? 'Criar melhores momentos'
-        : 'Criar rascunhos';
+          ? 'Gerar melhores momentos'
+        : 'Gerar cortes';
 
   const selectedCaptionPreset = getCaptionStylePreset(subtitleStylePreset);
 
@@ -157,7 +215,7 @@ export function IndexPage() {
 
   async function analyzeSelectedVideo() {
     if (!selectedVideo) {
-      setMessage('Selecione um video salvo em Arquivos antes de analisar.');
+      setMessage('Selecione um vídeo salvo em Arquivos antes de analisar.', 'error');
       return null;
     }
 
@@ -166,14 +224,14 @@ export function IndexPage() {
       setMessage('Analisando fala, movimento e rostos para encontrar os melhores momentos...');
       const analyzedVideo = await analyzeUploadedVideo(selectedVideo.id, (job) => {
         setMessage(job.status === 'queued'
-          ? 'Analise de IA entrou na fila...'
+          ? 'A análise de IA entrou na fila...'
           : `Analisando fala, movimento e rostos... ${job.progress}%`);
       });
       replaceVideo(analyzedVideo);
-      setMessage('Analise concluida. O rastreamento facial sera aplicado automaticamente ao reenquadrar os cortes.');
+      setMessage('Análise concluída. O rastreamento facial será aplicado automaticamente ao reenquadrar os cortes.', 'success');
       return analyzedVideo;
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Nao foi possivel analisar o video.');
+      setMessage(error instanceof Error ? error.message : 'Não foi possível analisar o vídeo.', 'error');
       return null;
     } finally {
       setIsAnalyzing(false);
@@ -182,12 +240,12 @@ export function IndexPage() {
 
   async function createClips() {
     if (!selectedVideo) {
-      setMessage('Selecione um video salvo em Arquivos antes de gerar os clipes.');
+      setMessage('Selecione um vídeo salvo em Arquivos antes de gerar os cortes.', 'error');
       return;
     }
 
     if (selectedVideo.durationSeconds < MIN_CLIP_DURATION_SECONDS) {
-      setMessage(`O video precisa ter pelo menos ${MIN_CLIP_DURATION_SECONDS} segundos para gerar cortes.`);
+      setMessage(`O vídeo precisa ter pelo menos ${MIN_CLIP_DURATION_SECONDS} segundos para gerar cortes.`, 'error');
       return;
     }
 
@@ -210,9 +268,9 @@ export function IndexPage() {
       });
       replaceVideo(video);
       setSelectedClipIds(generatedClips.map((clip) => clip.id));
-      setMessage('Rascunhos criados. Abra um corte no Editor antes de exportar.');
+      setMessage('Cortes criados. Revise os cortes e ajuste o layout no Editor quando necessário.', 'success');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Nao foi possivel gerar os clipes.');
+      setMessage(error instanceof Error ? error.message : 'Não foi possível gerar os cortes.', 'error');
     } finally {
       setIsGenerating(false);
     }
@@ -232,11 +290,11 @@ export function IndexPage() {
       });
       const composition = project.compositions[0];
       if (!composition) {
-        throw new Error('Composicao nao criada.');
+        throw new Error('Composição não criada.');
       }
       navigate(`/projetos/${project.id}/cortes/${composition.id}/editor`);
     } catch {
-      setMessage('Nao foi possivel abrir o corte no Editor.');
+      setMessage('Não foi possível abrir o corte no Editor.', 'error');
     } finally {
       setOpeningClipId(null);
     }
@@ -244,12 +302,12 @@ export function IndexPage() {
 
   async function exportPackage() {
     if (!selectedVideo || selectedClipIds.length === 0) {
-      setMessage('Selecione pelo menos um clipe para exportar.');
+      setMessage('Selecione pelo menos um corte para exportar.', 'error');
       return;
     }
 
     if (subtitleMode === 'manual' && !manualSubtitleText.trim()) {
-      setMessage('Digite a legenda manual antes de exportar.');
+      setMessage('Digite a legenda manual antes de exportar.', 'error');
       return;
     }
 
@@ -285,10 +343,10 @@ export function IndexPage() {
           }),
         },
       });
-      setMessage('Exportacao adicionada a fila.');
+      setMessage('Exportação adicionada à fila.', 'success');
       navigate(`/galeria?jobId=${exportJob.id}`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Nao foi possivel exportar o pacote.');
+      setMessage(error instanceof Error ? error.message : 'Não foi possível exportar o pacote.', 'error');
     } finally {
       setIsExporting(false);
     }
@@ -305,9 +363,9 @@ export function IndexPage() {
       setMessage('Enviando voice-over...');
       const asset = await uploadAudioAsset(file);
       setVoiceoverAsset(asset);
-      setMessage('Voice-over pronto para a próxima exportação.');
+      setMessage('Voice-over pronto para a próxima exportação.', 'success');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Nao foi possivel enviar o voice-over.');
+      setMessage(error instanceof Error ? error.message : 'Não foi possível enviar o voice-over.', 'error');
     } finally {
       setIsUploadingVoiceover(false);
       event.target.value = '';
@@ -320,6 +378,18 @@ export function IndexPage() {
         ? currentIds.filter((currentId) => currentId !== clipId)
         : [...currentIds, clipId],
     );
+  }
+
+  function selectAllClips() {
+    setSelectedClipIds(clips.map((clip) => clip.id));
+    setIsClipMenuOpen(false);
+    setMessage('Todos os cortes foram selecionados.');
+  }
+
+  function clearClipSelection() {
+    setSelectedClipIds([]);
+    setIsClipMenuOpen(false);
+    setMessage('Seleção limpa. Escolha ao menos um corte para exportar.');
   }
 
   function renderClipCard(clip: GeneratedClip) {
@@ -375,12 +445,35 @@ export function IndexPage() {
         <header className="topbar">
           <div className="searchbox">
             <Search size={18} />
-            <input aria-label="Buscar projeto" placeholder="Buscar clips, projetos ou templates" />
+            <input
+              aria-label="Buscar clips, projetos ou templates"
+              placeholder="Buscar clips, projetos ou templates"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+            />
           </div>
           <div className="topbar-actions">
-                <button className="icon-button" type="button" aria-label="Notificacoes">
-              <Bell size={18} />
-            </button>
+            <div className="notification-menu">
+              <button
+                className="icon-button"
+                type="button"
+                aria-label="Notificações"
+                aria-expanded={isNotificationsOpen}
+                aria-controls="production-notifications"
+                onClick={() => {
+                  setIsNotificationsOpen((currentOpen) => !currentOpen);
+                  setIsClipMenuOpen(false);
+                }}
+              >
+                <Bell size={18} />
+              </button>
+              {isNotificationsOpen && (
+                <div className="notification-popover" id="production-notifications" role="status">
+                  <strong>Nenhuma notificação nova</strong>
+                  <span>O andamento das análises e exportações aparecerá aqui.</span>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
@@ -394,28 +487,49 @@ export function IndexPage() {
               </div>
             </div>
 
-            <div className="dropzone video-selector">
+            <div className="video-selector">
               <div className="upload-symbol">
                 <ListVideo size={28} />
               </div>
               <div>
-                <h2>Selecione um video dos Arquivos</h2>
-                <p>Use o video ja estruturado no Editor para fechar as legendas dos cortes.</p>
+                <p className="eyebrow">1. Escolha a fonte</p>
+                <h2>Escolha um vídeo</h2>
+                <p>Use um vídeo já salvo em Arquivos para gerar seus cortes.</p>
+                <p className="video-selector-status" role="status">
+                  {isLoading
+                    ? 'Carregando vídeos...'
+                    : isVideoDetailsLoading
+                      ? 'Carregando detalhes do vídeo...'
+                    : videos.length === 0
+                      ? 'Nenhum vídeo em Arquivos. Adicione um vídeo para começar.'
+                      : `${videos.length} vídeo(s) disponível(is).`}
+                </p>
+                {videosLoadError && (
+                  <button className="inline-retry" type="button" onClick={() => void loadVideos()} disabled={isLoading}>
+                    Tentar novamente
+                  </button>
+                )}
               </div>
               <select
                 className="video-select"
-                aria-label="Selecionar video dos arquivos"
+                aria-label="Selecionar vídeo dos Arquivos"
                 value={selectedVideoId}
                 onChange={(event) => setSelectedVideoId(event.target.value)}
                 disabled={isLoading || videos.length === 0}
               >
-                {videos.length === 0 && <option>Nenhum video em Arquivos</option>}
+                {videos.length === 0 && <option>Nenhum vídeo em Arquivos</option>}
                 {videos.map((video) => (
                   <option value={video.id} key={video.id}>
                     {video.originalName}
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div className="production-section-heading">
+              <p className="eyebrow">2. Defina o objetivo</p>
+              <h2>Como deseja encontrar os cortes?</h2>
+              <p>Escolha a quantidade, a duração ou deixe a IA sugerir os melhores momentos.</p>
             </div>
 
             <div className="settings-grid">
@@ -426,7 +540,7 @@ export function IndexPage() {
                   value={cutMode}
                   onChange={(event) => setCutMode(event.target.value as 'duration' | 'count' | 'recommended' | 'best-moments')}
                 >
-                  <option value="duration">Duracao por corte</option>
+                  <option value="duration">Duração por corte</option>
                   <option value="count">Quantidade de cortes</option>
                   <option value="best-moments">Melhores momentos com IA</option>
                   {selectedVideo?.audienceRecommendations?.length ? <option value="recommended">Momentos mais assistidos</option> : null}
@@ -434,9 +548,9 @@ export function IndexPage() {
               </label>
             {cutMode === 'duration' ? (
                 <label className="setting-control">
-                  <span>Duracao minima de cada corte</span>
+                  <span>Duração mínima de cada corte</span>
                   <input
-                    aria-label="Duracao de cada corte em segundos"
+                    aria-label="Duração de cada corte em segundos"
                     min={MIN_CLIP_DURATION_SECONDS}
                     max={maxClipDurationSeconds}
                     step={5}
@@ -460,13 +574,15 @@ export function IndexPage() {
                 </label>
               ) : cutMode === 'best-moments' ? (
                 <div className="setting-control setting-control-recommendation">
-                  <span>Analise inteligente</span>
-                  <strong>{selectedVideo?.aiStatus === 'done' ? 'Fala, movimento e rosto analisados' : 'Analise automatica ao gerar'}</strong>
+                  <span>Análise inteligente</span>
+                  <strong>{selectedVideo?.aiStatus === 'done' ? 'Fala, movimento e rosto analisados' : 'Análise automática ao gerar'}</strong>
                 </div>
               ) : (
                 <div className="setting-control setting-control-recommendation">
-                  <span>Recomendacao do YouTube</span>
-                  <strong>{selectedVideo?.audienceRecommendations?.length || 0} janela(s) recomendada(s)</strong>
+                  <span>Recomendação do YouTube</span>
+                  <strong>
+                    {recommendedWindowCount} {recommendedWindowCount === 1 ? 'janela recomendada' : 'janelas recomendadas'}
+                  </strong>
                 </div>
               )}
             </div>
@@ -492,23 +608,55 @@ export function IndexPage() {
 
             {cutMode === 'best-moments' && (
               <p className="generator-ai-note">
-                A IA combina fala, ganchos de texto, movimento e presenca de rosto para ordenar as janelas mais promissoras.
+                A IA combina fala, ganchos de texto, movimento e presença de rosto para ordenar as janelas mais promissoras.
               </p>
             )}
 
+            <div className="production-section-heading production-generation-heading">
+              <p className="eyebrow">Geração</p>
+              <h2>Pronto para gerar?</h2>
+              <p>A análise será feita automaticamente se o vídeo ainda não tiver sido analisado.</p>
+            </div>
+
             <div className="generator-actions">
-              <button className="generate-button" disabled={!selectedVideo || isGenerating || isAnalyzing} onClick={createClips}>
+              <button
+                className="generate-button"
+                disabled={!selectedVideo || selectedVideoTooShort || isGenerating || isAnalyzing}
+                aria-busy={isGenerating || isAnalyzing}
+                onClick={createClips}
+              >
                 <Wand2 size={20} />
-                {isGenerating ? 'Gerando clips...' : generateButtonLabel}
+                {isGenerating ? 'Gerando cortes...' : generateButtonLabel}
               </button>
-              <button className="secondary-action analysis-action" type="button" disabled={!selectedVideo || isAnalyzing || isGenerating} onClick={() => void analyzeSelectedVideo()}>
+              <button
+                className="secondary-action analysis-action"
+                type="button"
+                disabled={!selectedVideo || isAnalyzing || isGenerating}
+                aria-busy={isAnalyzing}
+                onClick={() => void analyzeSelectedVideo()}
+              >
                 <ScanFace size={17} />
-                {isAnalyzing ? 'Analisando...' : 'Analisar video'}
+                {isAnalyzing ? 'Analisando...' : 'Analisar antes de gerar'}
               </button>
             </div>
+            {(isLoading || isVideoDetailsLoading || !selectedVideo || selectedVideoTooShort || isAnalyzing || isGenerating) && (
+              <p className="generator-action-help" role="status">
+                {isLoading
+                  ? 'Aguarde enquanto buscamos os vídeos salvos.'
+                  : isVideoDetailsLoading
+                    ? 'Aguarde enquanto carregamos os detalhes do vídeo.'
+                    : !selectedVideo
+                      ? 'Selecione um vídeo para habilitar a análise e a geração.'
+                      : isAnalyzing
+                        ? 'A análise está em andamento. A geração será liberada ao terminar.'
+                        : isGenerating
+                          ? 'Os cortes estão sendo preparados. Você poderá revisá-los em seguida.'
+                          : `Este vídeo precisa ter pelo menos ${MIN_CLIP_DURATION_SECONDS} segundos para gerar cortes.`}
+              </p>
+            )}
             <div className="tracking-note">
               <ScanFace size={16} />
-              <span>Tracking de rosto automatico: o reenquadramento acompanha o rosto principal durante o corte.</span>
+              <span>Rastreamento facial automático: o reenquadramento acompanha o rosto principal durante o corte.</span>
             </div>
 
             {selectedVideo?.analysis?.brollSuggestions?.length ? (
@@ -533,6 +681,18 @@ export function IndexPage() {
               </section>
             ) : null}
 
+            <details className="production-advanced-settings">
+              <summary>
+                <span className="production-settings-summary">
+                  <span className="production-step-number">4</span>
+                  <span className="production-settings-summary-copy">
+                    <strong>Personalize legenda e áudio</strong>
+                    <small>Opcional · você pode usar as configurações padrão</small>
+                  </span>
+                </span>
+              </summary>
+
+              <div className="production-advanced-content">
             <div className="subtitle-settings">
               <div className="subtitle-settings-heading">
                 <p className="eyebrow">Legenda</p>
@@ -547,7 +707,7 @@ export function IndexPage() {
                     value={subtitleMode}
                     onChange={(event) => setSubtitleMode(event.target.value as 'none' | 'automatic' | 'manual')}
                   >
-                    <option value="automatic">Legenda automatica</option>
+                    <option value="automatic">Legenda automática</option>
                     <option value="manual">Legenda manual</option>
                     <option value="none">Sem legenda</option>
                   </select>
@@ -613,9 +773,9 @@ export function IndexPage() {
               </div>
 
               <label className="setting-control subtitle-position-control">
-                <span>Posicao no video</span>
+                <span>Posição no vídeo</span>
                 <select
-                  aria-label="Posicao da legenda"
+                  aria-label="Posição da legenda"
                   value={subtitlePosition}
                   onChange={(event) => setSubtitlePosition(event.target.value as 'bottom' | 'middle' | 'top')}
                   disabled={subtitleMode === 'none'}
@@ -627,7 +787,7 @@ export function IndexPage() {
               </label>
 
               <label className="setting-control subtitle-position-control">
-                <span>Estilo da legenda</span>
+                  <span>Estilo da legenda</span>
                 <select
                   aria-label="Estilo da legenda"
                   value={subtitleDisplayMode}
@@ -657,7 +817,7 @@ export function IndexPage() {
                   <span>Texto manual</span>
                   <textarea
                     aria-label="Texto da legenda manual"
-                    placeholder="Digite a legenda que sera aplicada aos cortes selecionados"
+                    placeholder="Digite a legenda que será aplicada aos cortes selecionados"
                     value={manualSubtitleText}
                     onChange={(event) => setManualSubtitleText(event.target.value)}
                   />
@@ -668,7 +828,7 @@ export function IndexPage() {
                 <label className="setting-control">
                   <span>Corrigir palavras</span>
                   <textarea
-                    aria-label="Correcoes da legenda automatica"
+                    aria-label="Correções da legenda automática"
                     placeholder={'errado = correto\nRe bears = Recorda-me'}
                     value={subtitleCorrections}
                     onChange={(event) => setSubtitleCorrections(event.target.value)}
@@ -699,7 +859,7 @@ export function IndexPage() {
               <div className="voiceover-upload">
                 <AudioLines size={18} />
                 <label className="voiceover-upload-control">
-                  <strong>{voiceoverAsset ? 'Voice-over selecionado' : 'Adicionar voice-over'}</strong>
+                  <strong>{isUploadingVoiceover ? 'Enviando voice-over...' : voiceoverAsset ? 'Voice-over selecionado' : 'Adicionar voice-over'}</strong>
                   <small>{voiceoverAsset?.name || 'MP3, WAV, M4A, AAC, OGG ou FLAC'}</small>
                   <input type="file" accept="audio/*" onChange={handleVoiceoverUpload} disabled={isUploadingVoiceover} />
                 </label>
@@ -708,25 +868,32 @@ export function IndexPage() {
               <p className="smart-audio-note">O voice-over substitui o áudio original apenas no arquivo exportado. O preview original continua intacto.</p>
             </section>
 
-            {message && <p className="generator-message">{message}</p>}
+              </div>
+            </details>
+
+            {message && (
+              <p className={`generator-message ${messageTone}`} role="status" aria-live="polite">
+                {message}
+              </p>
+            )}
           </section>
 
           <div className="right-column">
             <section className="preview-panel">
-              <div className="video-preview selected-video-preview" aria-label="Preview do video selecionado">
+              <div className="video-preview selected-video-preview" aria-label="Prévia do vídeo selecionado">
                 {selectedVideo ? (
                   <video src={selectedVideo.url} controls preload="metadata" />
                 ) : (
                   <div className="empty-preview">
                     <Play size={28} />
-                    <span>Selecione um video em Arquivos</span>
+                    <span>Selecione um vídeo em Arquivos</span>
                   </div>
                 )}
               </div>
 
               <div className="insight-row">
                 <div>
-                  <span className="metric-label">Duracao do video</span>
+                  <span className="metric-label">Duração do vídeo</span>
                   <strong>{formatDuration(selectedVideo?.durationSeconds || 0)}</strong>
                 </div>
                 <div>
@@ -739,17 +906,49 @@ export function IndexPage() {
             <section className="clips-panel">
               <div className="panel-heading compact">
                 <div>
-                  <p className="eyebrow">Fila</p>
-                  <h2>Cortes gerados</h2>
+                  <p className="eyebrow">3. Revisão</p>
+                  <h2>Revise os cortes</h2>
+                  <p>
+                    {clips.length > 0
+                      ? `${selectedClips.length} de ${clips.length} cortes selecionados.`
+                      : 'Gere os cortes para escolher quais deseja manter.'}
+                  </p>
                 </div>
-                <button className="icon-button" type="button" aria-label="Mais opcoes">
-                  <MoreHorizontal size={18} />
-                </button>
+                <div className="clip-menu-wrap">
+                  <button
+                    className="icon-button"
+                    type="button"
+                    aria-label="Mais opções de seleção"
+                    aria-haspopup="menu"
+                    aria-expanded={isClipMenuOpen}
+                    onClick={() => {
+                      setIsClipMenuOpen((currentOpen) => !currentOpen);
+                      setIsNotificationsOpen(false);
+                    }}
+                  >
+                    <MoreHorizontal size={18} />
+                  </button>
+                  {isClipMenuOpen && (
+                    <div className="clip-actions-menu" role="menu">
+                      <button type="button" role="menuitem" disabled={clips.length === 0 || selectedClipIds.length === clips.length} onClick={selectAllClips}>
+                        Selecionar todos
+                      </button>
+                      <button type="button" role="menuitem" disabled={selectedClipIds.length === 0} onClick={clearClipSelection}>
+                        Limpar seleção
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="clip-list">
-                {clips.length > 0 ? (
-                  clips.map(renderClipCard)
+                {clips.length > 0 && filteredClips.length > 0 ? (
+                  filteredClips.map(renderClipCard)
+                ) : clips.length > 0 && searchQuery.trim() ? (
+                  <div className="clip-empty">
+                    <Search size={24} />
+                    <span>Nenhum corte corresponde à busca “{searchQuery.trim()}”.</span>
+                  </div>
                 ) : (
                   <div className="clip-empty">
                     <Film size={24} />
@@ -763,8 +962,19 @@ export function IndexPage() {
               <div className="export-copy">
                 <Sparkles size={20} />
                 <div>
+                  <p className="eyebrow">5. Exportação</p>
                   <h2>Pacote pronto</h2>
-                  <p>{selectedClips.length} clipes selecionados.</p>
+                  <p className="export-status-copy">
+                    {isExporting
+                      ? 'Preparando os arquivos para a Galeria...'
+                      : !selectedVideo
+                        ? 'Selecione um vídeo para começar.'
+                        : clips.length === 0
+                          ? 'Gere cortes para habilitar a exportação.'
+                          : selectedClips.length === 0
+                            ? 'Selecione ao menos um corte para exportar.'
+                            : `${selectedClips.length} cortes selecionados e prontos para exportar.`}
+                  </p>
                   <div className="package-list">
                     {selectedClips.map((clip) => (
                       <span key={clip.id}>{clip.title}</span>
@@ -776,6 +986,7 @@ export function IndexPage() {
                 className="secondary-action dark"
                 type="button"
                 disabled={!selectedVideo || selectedClipIds.length === 0 || isExporting}
+                aria-busy={isExporting}
                 onClick={exportPackage}
               >
                 <Download size={16} />

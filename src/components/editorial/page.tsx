@@ -112,7 +112,7 @@ export function EditorialPage() {
           setSearchParams({ projectId: nextProjectId }, { replace: true });
         }
       })
-      .catch(() => setError('Nao foi possivel carregar a base editorial.'))
+      .catch(() => setError('Não foi possível carregar a base editorial.'))
       .finally(() => setIsLoading(false));
   }, [searchParams, setSearchParams]);
 
@@ -132,7 +132,7 @@ export function EditorialPage() {
       })
       .catch(() => {
         if (isCurrent) {
-          setError('Nao foi possivel carregar o projeto selecionado.');
+          setError('Não foi possível carregar o projeto selecionado.');
         }
       })
       .finally(() => {
@@ -178,7 +178,7 @@ export function EditorialPage() {
       setProject(await analyzeProjectEditorial(project.id));
       setMessage('Score editorial e sugestões de metadados atualizados.');
     } catch (analysisError) {
-      setError(analysisError instanceof Error ? analysisError.message : 'Nao foi possivel analisar o projeto.');
+      setError(analysisError instanceof Error ? analysisError.message : 'Não foi possível analisar o projeto.');
     } finally {
       setIsAnalyzing(false);
     }
@@ -206,7 +206,7 @@ export function EditorialPage() {
       setProject(await saveCompositionEditorial(project.id, compositionId, drafts[compositionId]));
       setMessage('Metadados salvos como revisão manual.');
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Nao foi possivel salvar os metadados.');
+      setError(saveError instanceof Error ? saveError.message : 'Não foi possível salvar os metadados.');
     } finally {
       setSavingCompositionId('');
     }
@@ -226,7 +226,7 @@ export function EditorialPage() {
       }));
       setMessage('Dicionário de marca atualizado. Execute a análise novamente para aplicar as regras aos scores.');
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Nao foi possivel salvar o dicionario.');
+      setError(saveError instanceof Error ? saveError.message : 'Não foi possível salvar o dicionário.');
     } finally {
       setIsSavingDictionary(false);
     }
@@ -260,7 +260,7 @@ export function EditorialPage() {
     try {
       setProviderStatus(await getEditorialStatus());
     } catch (statusError) {
-      setError(statusError instanceof Error ? statusError.message : 'Nao foi possivel consultar o modelo local.');
+      setError(statusError instanceof Error ? statusError.message : 'Não foi possível consultar o modelo local.');
     }
   }
 
@@ -278,7 +278,7 @@ export function EditorialPage() {
       setProviderStatus(await getEditorialStatus());
       setMessage('Configuração do modelo local atualizada.');
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Nao foi possivel salvar o modelo local.');
+      setError(saveError instanceof Error ? saveError.message : 'Não foi possível salvar o modelo local.');
     } finally {
       setIsSavingAi(false);
     }

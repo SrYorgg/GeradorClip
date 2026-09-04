@@ -41,7 +41,7 @@ export function CaptionsPage() {
           setSearchParams({ projectId: nextProjectId }, { replace: true });
         }
       })
-      .catch(() => setError('Nao foi possivel carregar os projetos.'))
+      .catch(() => setError('Não foi possível carregar os projetos.'))
       .finally(() => setIsLoading(false));
   }, [requestedProjectId, setSearchParams]);
 
@@ -64,7 +64,7 @@ export function CaptionsPage() {
       })
       .catch(() => {
         if (isCurrent) {
-          setError('Nao foi possivel carregar o projeto selecionado.');
+          setError('Não foi possível carregar o projeto selecionado.');
         }
       })
       .finally(() => {
@@ -123,7 +123,7 @@ export function CaptionsPage() {
 
       return true;
     } catch {
-      setError('Nao foi possivel salvar as configuracoes de legenda.');
+      setError('Não foi possível salvar as configurações de legenda.');
       return false;
     } finally {
       setIsSaving(false);
@@ -166,7 +166,7 @@ export function CaptionsPage() {
             <h2>Nenhum projeto pronto para receber legendas</h2>
             <p>Armazene um vídeo e ajuste pelo menos um corte antes de chegar a esta etapa.</p>
             <Link className="workflow-primary" to="/arquivos">
-              Ir para arquivos
+              Ir para Arquivos
               <ArrowRight size={16} />
             </Link>
           </div>

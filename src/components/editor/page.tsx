@@ -96,7 +96,7 @@ export function EditorPage() {
         setVideos(loadedVideos);
         setSelectedVideoId(loadedVideos[0]?.id || '');
       })
-      .catch(() => setMessage('Nao foi possivel carregar os videos salvos.'))
+      .catch(() => setMessage('Não foi possível carregar os vídeos salvos.'))
       .finally(() => setIsLoading(false));
   }, []);
 
@@ -179,7 +179,7 @@ export function EditorPage() {
 
   async function analyzeSelectedVideo() {
     if (!selectedVideo) {
-      setMessage('Selecione um video antes de usar a IA.');
+      setMessage('Selecione um vídeo antes de usar a IA.');
       return;
     }
 
@@ -196,7 +196,7 @@ export function EditorPage() {
       );
       setMessage('Analise de IA aplicada ao editor.');
     } catch {
-      setMessage('Nao foi possivel executar a analise de IA.');
+      setMessage('Não foi possível executar a análise de IA.');
     } finally {
       setIsAnalyzing(false);
     }
@@ -279,12 +279,12 @@ export function EditorPage() {
             <label className="setting-control">
               <span>Arquivo</span>
               <select
-                aria-label="Selecionar video para editar"
+                aria-label="Selecionar vídeo para editar"
                 value={selectedVideoId}
                 onChange={(event) => setSelectedVideoId(event.target.value)}
                 disabled={isLoading || videos.length === 0}
               >
-                {videos.length === 0 && <option>Nenhum video salvo</option>}
+                {videos.length === 0 && <option>Nenhum vídeo salvo</option>}
                 {videos.map((video) => (
                   <option value={video.id} key={video.id}>
                     {video.originalName}
@@ -299,7 +299,7 @@ export function EditorPage() {
                 type="button"
                 onClick={() => setActiveLayerId('video')}
               >
-                Video
+                Vídeo
               </button>
               <button
                 className={activeLayerId === 'camera' ? 'active' : ''}
@@ -450,12 +450,12 @@ export function EditorPage() {
             <div className="editor-stage-toolbar">
               <div>
                 <p className="eyebrow">Preview 9:16</p>
-                <h2>{selectedVideo?.originalName || 'Nenhum video selecionado'}</h2>
+                <h2>{selectedVideo?.originalName || 'Nenhum vídeo selecionado'}</h2>
               </div>
               <span>{formatDuration(selectedVideo?.durationSeconds || 0)}</span>
             </div>
 
-            <div className="shorts-stage" aria-label="Area de edicao vertical">
+            <div className="shorts-stage" aria-label="Área de edição vertical">
               {selectedVideo ? (
                 <button
                   className={`stage-video-slot editable-layer ${activeLayerId === 'video' ? 'active' : ''}`}
@@ -469,7 +469,7 @@ export function EditorPage() {
               ) : (
                 <div className="stage-empty">
                   <MonitorPlay size={34} />
-                  <span>Selecione um video salvo</span>
+                  <span>Selecione um vídeo salvo</span>
                 </div>
               )}
 
@@ -518,7 +518,7 @@ export function EditorPage() {
             <div className="panel-heading compact">
               <div>
                 <p className="eyebrow">Camadas</p>
-                <h2>Imagens no video</h2>
+                <h2>Imagens no vídeo</h2>
               </div>
               <Layers3 size={20} />
             </div>

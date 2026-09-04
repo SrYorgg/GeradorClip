@@ -36,7 +36,7 @@ function createLayoutConfig(preset: CanvasPreset): LayoutConfig {
       regions: [
         {
           id: 'main',
-          name: 'Video principal',
+          name: 'Vídeo principal',
           xPct: 0,
           yPct: 0,
           widthPct: 100,
@@ -46,6 +46,17 @@ function createLayoutConfig(preset: CanvasPreset): LayoutConfig {
       ],
     },
   };
+}
+
+function formatAiStatus(status: NonNullable<UploadedVideo['aiStatus']>) {
+  const labels: Record<NonNullable<UploadedVideo['aiStatus']>, string> = {
+    pending: 'Pendente',
+    processing: 'Analisando',
+    done: 'Analisado',
+    error: 'Com erro',
+  };
+
+  return labels[status];
 }
 
 type LayoutImageDraft = {
@@ -82,7 +93,7 @@ export function FilesPage() {
     setError('');
     listUploadedVideos()
       .then(setVideos)
-      .catch(() => setError('Nao foi possivel carregar os videos da API local.'))
+      .catch(() => setError('Não foi possível carregar os vídeos da API local.'))
       .finally(() => setIsLoading(false));
   }
 
@@ -97,7 +108,7 @@ export function FilesPage() {
       setVideos((currentVideos) => currentVideos.filter((video) => video.id !== videoId));
       setSelectedVideo((currentVideo) => (currentVideo?.id === videoId ? null : currentVideo));
     } catch {
-      setError('Nao foi possivel apagar o video.');
+      setError('Não foi possível apagar o vídeo.');
     }
   }
 
@@ -184,7 +195,7 @@ export function FilesPage() {
       closeLayoutSetup();
       navigate(`/projetos/${initializedProject.id}/cortes/${firstComposition.id}/editor`);
     } catch {
-      setError('Nao foi possivel preparar os cortes para edição.');
+      setError('Não foi possível preparar os cortes para edição.');
     } finally {
       setPreparingVideoId(null);
     }
@@ -201,7 +212,7 @@ export function FilesPage() {
       );
       setSelectedVideo((currentVideo) => (currentVideo?.id === videoId ? updatedVideo : currentVideo));
     } catch {
-      setError('Nao foi possivel executar a analise de IA.');
+      setError('Não foi possível executar a análise de IA.');
     } finally {
       setProcessingVideoId(null);
       setAnalysisProgress(null);
@@ -237,7 +248,7 @@ export function FilesPage() {
 
         {transcript && (
           <div className="ai-text-block">
-            <strong>Transcricao WhisperX</strong>
+            <strong>Transcrição WhisperX</strong>
             <p>{transcript}</p>
           </div>
         )}
@@ -273,7 +284,7 @@ export function FilesPage() {
             <p>Envie e mantenha os vídeos disponíveis para iniciar um novo fluxo de cortes.</p>
           </div>
           <div className="files-heading-actions">
-            <span>{videos.length} videos salvos</span>
+            <span>{videos.length} vídeos salvos</span>
             <NewClipButton onUploaded={loadVideos} />
           </div>
         </div>
@@ -286,22 +297,22 @@ export function FilesPage() {
               const isReady = aiStatus[key] === true;
               return (
                 <span className={isReady ? 'ready' : 'missing'} key={key}>
-                  {label}: {isReady ? 'ok' : optional ? 'opcional' : 'não disponível'}
+                  {label}: {isReady ? 'Disponível' : optional ? 'Opcional' : 'Não disponível'}
                 </span>
               );
             })}
           </div>
         )}
 
-        {isLoading && <div className="route-panel">Carregando videos...</div>}
+        {isLoading && <div className="route-panel">Carregando vídeos...</div>}
 
         {error && <div className="route-panel files-empty">{error}</div>}
 
         {!isLoading && !error && videos.length === 0 && (
           <div className="route-panel files-empty">
             <FileVideo2 size={34} />
-            <h2>Nenhum video enviado</h2>
-            <p>Use Novo clip para armazenar um vídeo. Depois prepare os cortes e siga para Editar layout.</p>
+            <h2>Nenhum vídeo enviado</h2>
+            <p>Use Novo vídeo para armazenar um vídeo. Depois prepare os cortes e siga para Editar layout.</p>
           </div>
         )}
 
@@ -347,7 +358,7 @@ export function FilesPage() {
                     <ArrowRight size={15} />
                     {preparingVideoId === video.id ? 'Preparando...' : 'Editar layout'}
                   </button>
-                  {video.aiStatus && <span className={`ai-status-badge ${video.aiStatus}`}>{video.aiStatus}</span>}
+                  {video.aiStatus && <span className={`ai-status-badge ${video.aiStatus}`}>{formatAiStatus(video.aiStatus)}</span>}
                 </div>
                 {/* O diagnóstico técnico da fonte continua disponível no player, mas não interrompe o fluxo principal. */}
                 {video.audienceRecommendations?.length ? (
@@ -401,7 +412,7 @@ export function FilesPage() {
                   <button
                     className="video-delete-button"
                     type="button"
-                    aria-label="Apagar video"
+                    aria-label="Apagar vídeo"
                     onClick={() => deleteVideo(selectedVideo.id)}
                   >
                     <Trash2 size={18} />

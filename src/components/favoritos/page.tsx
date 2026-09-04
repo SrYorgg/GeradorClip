@@ -9,7 +9,7 @@ export function FavoritesPage() {
       <section className="workspace">
         <div className="route-panel cc-route-page">
           <p className="eyebrow">Favoritos</p>
-          <EmptyState icon={Star} title="Favoritos" description="Encontre rapidamente os clips marcados para reutilizacao." />
+          <EmptyState icon={Star} title="Favoritos" description="Encontre rapidamente os cortes marcados para reutilização." />
         </div>
       </section>
     </main>

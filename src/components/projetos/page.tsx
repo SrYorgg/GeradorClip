@@ -21,7 +21,7 @@ export function ProjectsPage() {
   useEffect(() => {
     listProjects()
       .then(setProjects)
-      .catch(() => setError('Nao foi possivel carregar os projetos.'))
+      .catch(() => setError('Não foi possível carregar os projetos.'))
       .finally(() => setIsLoading(false));
   }, []);
 

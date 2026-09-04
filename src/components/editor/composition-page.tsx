@@ -320,7 +320,7 @@ export function CompositionEditorPage() {
       })
       .catch(() => {
         if (isCurrent) {
-          setError('Nao foi possivel carregar o projeto.');
+          setError('Não foi possível carregar o projeto.');
         }
       })
       .finally(() => {
@@ -436,7 +436,7 @@ export function CompositionEditorPage() {
       return result.composition;
     } catch {
       dispatch({ type: 'set-save-state', saveState: 'error' });
-      setError('Nao foi possivel salvar o rascunho.');
+      setError('Não foi possível salvar o rascunho.');
       return null;
     } finally {
       setIsSaving(false);
@@ -487,7 +487,7 @@ export function CompositionEditorPage() {
   }, [isSaving, persistComposition, state.isDirty]);
 
   function selectComposition(nextComposition: Composition) {
-    if (state.isDirty && !window.confirm('Existem alteracoes nao salvas. Trocar de corte?')) {
+    if (state.isDirty && !window.confirm('Existem alterações não salvas. Trocar de corte?')) {
       return;
     }
 
@@ -635,7 +635,7 @@ export function CompositionEditorPage() {
 
       setMessage('Imagem adicionada ao layout compartilhado.');
     } catch {
-      setError('Nao foi possivel adicionar a imagem ao projeto.');
+      setError('Não foi possível adicionar a imagem ao projeto.');
     } finally {
       setIsUploadingImage(false);
     }
@@ -663,7 +663,7 @@ export function CompositionEditorPage() {
       }
       setMessage('Imagem removida do layout compartilhado.');
     } catch {
-      setError('Nao foi possivel remover a imagem do projeto.');
+      setError('Não foi possível remover a imagem do projeto.');
     } finally {
       setIsRemovingImageId(null);
     }
@@ -773,9 +773,9 @@ export function CompositionEditorPage() {
         return nextIds;
       });
       dispatch({ type: 'mark-saved', composition: result.composition });
-      setMessage('Corte aprovado para exportacao.');
+      setMessage('Corte aprovado para exportação.');
     } catch {
-      setError('Nao foi possivel aprovar o corte.');
+      setError('Não foi possível aprovar o corte.');
     }
   }
 
@@ -830,7 +830,7 @@ export function CompositionEditorPage() {
       if (updatedCurrentComposition && selectedIds.has(updatedCurrentComposition.id)) {
         dispatch({ type: 'mark-saved', composition: updatedCurrentComposition });
       }
-      setMessage(`${compositionsToApprove.length} cortes aprovados para exportacao.`);
+      setMessage(`${compositionsToApprove.length} cortes aprovados para exportação.`);
     } catch (error) {
       setProject(latestProject);
       setSelectedProposalIds(new Set(
@@ -838,7 +838,7 @@ export function CompositionEditorPage() {
           .filter((currentComposition) => selectedIds.has(currentComposition.id) && currentComposition.status !== 'approved')
           .map((currentComposition) => currentComposition.id),
       ));
-      setError(error instanceof Error ? error.message : 'Nao foi possivel aprovar os cortes selecionados.');
+      setError(error instanceof Error ? error.message : 'Não foi possível aprovar os cortes selecionados.');
     } finally {
       setIsApprovingSelected(false);
     }
@@ -873,7 +873,7 @@ export function CompositionEditorPage() {
 
       setMessage('Layout salvo. Cortes gerados para revisão.');
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Nao foi possivel gerar os cortes a partir deste layout.');
+      setError(error instanceof Error ? error.message : 'Não foi possível gerar os cortes a partir deste layout.');
     } finally {
       setIsGeneratingClips(false);
     }
@@ -971,7 +971,7 @@ export function CompositionEditorPage() {
             <span>{project.compositions.length}</span>
           </div>
           {!project.isLayoutDraft && (
-            <div className="proposal-selection-toolbar" aria-label="Selecao de cortes">
+            <div className="proposal-selection-toolbar" aria-label="Seleção de cortes">
               <label className="proposal-select-all">
                 <input
                   type="checkbox"
@@ -1112,7 +1112,7 @@ export function CompositionEditorPage() {
           <div className="composition-panel-heading">
             <div>
               <span className="composition-eyebrow">Inspetor</span>
-              <h2>Edicao do corte</h2>
+              <h2>Edição do corte</h2>
             </div>
           </div>
           <div className="inspector-section layout-section">
@@ -1432,7 +1432,7 @@ export function CompositionEditorPage() {
           )}
           <div className="inspector-ai-note">
             <strong>Decisao da IA</strong>
-            <p>{composition.aiMetadata?.reasons?.[0] || 'Este corte foi criado como rascunho editavel.'}</p>
+            <p>{composition.aiMetadata?.reasons?.[0] || 'Este corte foi criado como rascunho editável.'}</p>
           </div>
         </aside>
       </section>
@@ -1441,7 +1441,7 @@ export function CompositionEditorPage() {
         <div className="composition-panel-heading">
           <div>
             <span className="composition-eyebrow">Timeline</span>
-            <h2>Trilha de video</h2>
+            <h2>Trilha de vídeo</h2>
           </div>
           <span>{items.length} segmento(s)</span>
         </div>

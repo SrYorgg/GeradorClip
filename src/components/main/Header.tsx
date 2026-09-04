@@ -13,6 +13,7 @@ import {
   Sparkles,
   Star,
   Subtitles,
+  Trash2,
   UserRound,
   Video,
 } from 'lucide-react';
@@ -54,13 +55,16 @@ const workflowItems = [
   },
 ];
 
-const studioItems = [
+const quickStartItems = [
   {
-    label: 'Produção inteligente',
+    label: 'Criar cortes rápidos',
     to: '/producao',
     icon: Sparkles,
     end: true,
   },
+];
+
+const toolItems = [
   {
     label: 'Feed em massa',
     to: '/instagram',
@@ -73,23 +77,32 @@ const studioItems = [
     icon: Video,
     end: true,
   },
-];
-
-const utilityItems = [
   {
     label: 'Inteligência editorial',
     to: '/editorial',
     icon: Sparkles,
+    end: true,
   },
+];
+
+const organizationItems = [
   {
     label: 'Biblioteca',
     to: '/biblioteca',
     icon: BookOpen,
+    end: true,
   },
   {
     label: 'Favoritos',
     to: '/favoritos',
     icon: Star,
+    end: true,
+  },
+  {
+    label: 'Lixeira',
+    to: '/lixeira',
+    icon: Trash2,
+    end: true,
   },
 ];
 
@@ -181,71 +194,82 @@ export function Header() {
         data-mobile-open={isMobileOpen}
         aria-label="Navegação principal"
       >
-        <div className="clipcut-sidebar-scroll">
-          <div className="clipcut-sidebar-top">
-            <div className="clipcut-sidebar-heading">
-              <div className="clipcut-brand" role="img" aria-label="ClipCut">
-                <span className="clipcut-brand-mark">
-                  <Scissors size={20} strokeWidth={2.4} />
-                </span>
-                <span className="clipcut-brand-name">ClipCut</span>
-              </div>
-            </div>
-
-            <nav className="clipcut-nav-stack">
-              <span className="nav-section-label clipcut-nav-section">Criação rápida</span>
-              {studioItems.map(({ label, to, icon, end }) => (
-                <SidebarItem
-                  end={end}
-                  icon={icon}
-                  key={label}
-                  label={label}
-                  to={to}
-                  onClick={closeMobileNavigation}
-                />
-              ))}
-              <div className="nav-divider clipcut-nav-divider" />
-              <span className="nav-section-label clipcut-nav-section">Fluxo de criação</span>
-              {workflowItems.map(({ label, to, icon, end }) => (
-                <SidebarItem
-                  end={end}
-                  icon={icon}
-                  key={label}
-                  label={label}
-                  to={to}
-                  onClick={closeMobileNavigation}
-                />
-              ))}
-              <div className="nav-divider clipcut-nav-divider" />
-              <span className="nav-section-label clipcut-nav-section">Organização</span>
-              {utilityItems.map(({ label, to, icon }) => (
-                <SidebarItem
-                  icon={icon}
-                  key={label}
-                  label={label}
-                  to={to}
-                  onClick={closeMobileNavigation}
-                />
-              ))}
-            </nav>
+        <div className="clipcut-sidebar-heading">
+          <div className="clipcut-brand" role="img" aria-label="ClipCut">
+            <span className="clipcut-brand-mark">
+              <Scissors size={20} strokeWidth={2.4} />
+            </span>
+            <span className="clipcut-brand-name">ClipCut</span>
           </div>
+        </div>
 
-          <div className="clipcut-sidebar-footer">
-            <div className="sidebar-divider clipcut-sidebar-divider" />
-            <span className="nav-section-label clipcut-nav-section">Preferências</span>
-            <SidebarItem
-              icon={Settings}
-              label="Configurações"
-              to="/ajustes"
-              onClick={closeMobileNavigation}
-            />
-            <div className="clipcut-account" aria-label="Conta local do ClipCut">
-              <span className="clipcut-account-avatar"><UserRound size={16} /></span>
-              <span className="clipcut-account-copy">
-                <strong>Conta local</strong>
-                <small>Workspace ClipCut</small>
-              </span>
-            </div>
+        <div className="clipcut-sidebar-scroll">
+          <nav className="clipcut-nav-stack">
+            <span className="nav-section-label clipcut-nav-section">Começar</span>
+            {quickStartItems.map(({ label, to, icon, end }) => (
+              <SidebarItem
+                end={end}
+                icon={icon}
+                key={label}
+                label={label}
+                to={to}
+                onClick={closeMobileNavigation}
+              />
+            ))}
+            <div className="nav-divider clipcut-nav-divider" />
+            <span className="nav-section-label clipcut-nav-section">Fluxo completo</span>
+            {workflowItems.map(({ label, to, icon, end }) => (
+              <SidebarItem
+                end={end}
+                icon={icon}
+                key={label}
+                label={label}
+                to={to}
+                onClick={closeMobileNavigation}
+              />
+            ))}
+            <div className="nav-divider clipcut-nav-divider" />
+            <span className="nav-section-label clipcut-nav-section">Ferramentas</span>
+            {toolItems.map(({ label, to, icon, end }) => (
+              <SidebarItem
+                end={end}
+                icon={icon}
+                key={label}
+                label={label}
+                to={to}
+                onClick={closeMobileNavigation}
+              />
+            ))}
+            <div className="nav-divider clipcut-nav-divider" />
+            <span className="nav-section-label clipcut-nav-section">Organização</span>
+            {organizationItems.map(({ label, to, icon, end }) => (
+              <SidebarItem
+                end={end}
+                icon={icon}
+                key={label}
+                label={label}
+                to={to}
+                onClick={closeMobileNavigation}
+              />
+            ))}
+          </nav>
+        </div>
+
+        <div className="clipcut-sidebar-footer">
+          <div className="sidebar-divider clipcut-sidebar-divider" />
+          <span className="nav-section-label clipcut-nav-section">Preferências</span>
+          <SidebarItem
+            icon={Settings}
+            label="Configurações"
+            to="/ajustes"
+            onClick={closeMobileNavigation}
+          />
+          <div className="clipcut-account" aria-label="Conta local do ClipCut">
+            <span className="clipcut-account-avatar"><UserRound size={16} /></span>
+            <span className="clipcut-account-copy">
+              <strong>Conta local</strong>
+              <small>Workspace ClipCut</small>
+            </span>
           </div>
         </div>
 

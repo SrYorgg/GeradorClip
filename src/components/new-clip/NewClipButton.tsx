@@ -53,7 +53,7 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
     }
 
     if (file.size > MAX_VIDEO_FILE_SIZE_BYTES) {
-      setError('O video excede o limite de 1 GB.');
+      setError('O vídeo excede o limite de 1 GB.');
       return;
     }
 
@@ -67,7 +67,7 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
       URL.revokeObjectURL(objectUrl);
 
       if (!Number.isFinite(video.duration) || video.duration < MIN_CLIP_DURATION_SECONDS) {
-        setError(`O video precisa ter pelo menos ${MIN_CLIP_DURATION_SECONDS} segundos.`);
+        setError(`O vídeo precisa ter pelo menos ${MIN_CLIP_DURATION_SECONDS} segundos.`);
         return;
       }
 
@@ -134,12 +134,12 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
   async function sendUrl() {
     const normalizedUrl = sourceUrl.trim();
     if (!normalizedUrl) {
-      setError('Cole um link de video antes de importar.');
+      setError('Cole um link de vídeo antes de importar.');
       return;
     }
 
     if (normalizedUrl.length > MAX_IMPORT_URL_LENGTH) {
-      setError(`O link precisa ter no maximo ${MAX_IMPORT_URL_LENGTH} caracteres.`);
+      setError(`O link precisa ter no máximo ${MAX_IMPORT_URL_LENGTH} caracteres.`);
       return;
     }
 
@@ -149,7 +149,7 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
         throw new Error('unsupported-protocol');
       }
     } catch {
-      setError('Informe um link de video valido.');
+      setError('Informe um link de vídeo válido.');
       return;
     }
 
@@ -161,7 +161,7 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
       onUploaded?.();
       navigate('/arquivos');
     } catch (importError) {
-      setError(importError instanceof Error ? importError.message : 'Nao foi possivel importar o video pelo link.');
+      setError(importError instanceof Error ? importError.message : 'Não foi possível importar o vídeo pelo link.');
     } finally {
       setIsImporting(false);
     }
@@ -171,7 +171,7 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
     <>
       <button className="primary-action" type="button" onClick={() => setIsOpen(true)}>
         <Plus size={18} />
-        Novo clip
+        Novo vídeo
       </button>
 
       {isOpen && (
@@ -179,7 +179,7 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
           <section className="new-clip-modal" aria-labelledby="new-clip-title" aria-modal="true" role="dialog">
             <div className="new-clip-header">
               <div>
-                <p className="eyebrow">Novo clip</p>
+                <p className="eyebrow">Novo vídeo</p>
                 <h2 id="new-clip-title">Adicionar vídeo bruto</h2>
               </div>
               <button className="icon-button" type="button" aria-label="Fechar" onClick={closeModal}>
@@ -222,7 +222,7 @@ export function NewClipButton({ onUploaded }: NewClipButtonProps = {}) {
               <div className="new-clip-url-form">
                 <input
                   type="url"
-                  aria-label="Link do video"
+                  aria-label="Link do vídeo"
                   placeholder="https://www.youtube.com/watch?v=..."
                   value={sourceUrl}
                   onChange={(event) => setSourceUrl(event.target.value)}
