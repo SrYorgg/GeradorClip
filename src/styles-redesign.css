@@ -5527,3 +5527,23 @@ textarea:focus-visible {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Floating navigation: the workspace follows the rail instead of sitting under it. */
+@media (min-width: 681px) {
+  .app-shell .workspace {
+    margin-left: calc(18px + var(--clipcut-sidebar-expanded) + var(--clipcut-sidebar-gap)) !important;
+    transition: margin-left 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .app-shell:has(.clipcut-sidebar[data-collapsed='true']) .workspace {
+    margin-left: calc(18px + var(--clipcut-sidebar-rail) + var(--clipcut-sidebar-gap)) !important;
+  }
+}
+
+@media (max-width: 680px) {
+  .app-shell .workspace {
+    margin-left: 0 !important;
+    padding-top: 76px !important;
+    transition: none;
+  }
+}
